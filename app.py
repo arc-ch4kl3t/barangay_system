@@ -11,6 +11,8 @@ from docx.shared import Inches, Pt
 from docx.enum.section import WD_ORIENT
 from auth_utils import require_role, is_admin, is_user, generate_reset_token, send_password_reset_email, send_admin_notification
 from urllib.parse import parse_qs, urlparse
+import os
+import psycopg2
 
 app = Flask(__name__)
 app.secret_key = "your_secret_key_here"
@@ -26,14 +28,15 @@ CONTEXT_AWARE_ENDPOINTS = {
     'change_password', 'logout'
 }
 
+
+
 def get_db():
-    conn = mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="",
-        database="barangay_db"
-    )
-    return conn, conn.cursor(dictionary=True)
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        raise Exception("DATABASE_URL not found")
+
+    conn = psycopg2.connect(url)
+    return conn, conn.cursor()
 
 def ensure_auth_schema():
     """Keep user authentication tables compatible with role-based access."""
