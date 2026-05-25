@@ -16,6 +16,27 @@ from urllib.parse import parse_qs, urlparse
 app = Flask(__name__)
 app.secret_key = "your_secret_key_here"
 
+@app.route("/init-db")
+def init_db():
+    conn = psycopg2.connect(os.environ.get("DATABASE_URL"))
+    cur = conn.cursor()
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username TEXT UNIQUE,
+        email TEXT UNIQUE,
+        password TEXT,
+        role TEXT DEFAULT 'user'
+    );
+    """)
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return "DB CREATED SUCCESSFULLY"
+
 ROLE_SESSION_KEY = 'role_sessions'
 PUBLIC_ENDPOINTS = {
     'static', 'login', 'signup', 'forgot_password',
@@ -297,7 +318,10 @@ def login():
                 flash("Invalid username or password", "danger")
                 return redirect(url_for('login'))
         except Exception as e:
-            print(f\"Login error: {e}\")\n            flash(f\"Login failed: {str(e)}\", \"danger\")\n            return redirect(url_for('login'))\n    return render_template('login.html')
+            print(f"Login error: {e}")
+            flash(f"Login failed: {str(e)}", "danger")
+            return redirect(url_for('login'))
+    return render_template('login.html')
 
 @app.route('/logout')
 def logout():
