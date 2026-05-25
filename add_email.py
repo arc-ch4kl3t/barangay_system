@@ -2,15 +2,16 @@
 """
 Add email column to users table for Gmail integration
 """
-import mysql.connector
+import os
+import psycopg2
 
 def add_email_column():
-    conn = mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="",
-        database="barangay_db"
-    )
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        print("❌ DATABASE_URL environment variable not set!")
+        return False
+    
+    conn = psycopg2.connect(database_url, sslmode="require")
     cursor = conn.cursor()
     
     print("🔄 Adding Email Column for Gmail Integration...")
@@ -18,7 +19,10 @@ def add_email_column():
     
     try:
         # Check if email column exists
-        cursor.execute("SHOW COLUMNS FROM users LIKE 'email'")
+        cursor.execute("""
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_name='users' AND column_name='email'
+        """)
         if cursor.fetchone():
             print("⚠️  Email column already exists")
             return True
@@ -26,13 +30,15 @@ def add_email_column():
         # Add email column
         print("✓ Adding 'email' column to users table...")
         cursor.execute("""
-            ALTER TABLE users ADD COLUMN email VARCHAR(100) UNIQUE 
-            COMMENT 'Email address for Gmail integration and notifications'
+            ALTER TABLE users ADD COLUMN email VARCHAR(100) UNIQUE
         """)
         
         # Create index for faster lookups
         print("✓ Creating email index...")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_email ON users(email)")
+        try:
+            cursor.execute("CREATE INDEX idx_email ON users(email)")
+        except psycopg2.Error:
+            pass
         
         conn.commit()
         
@@ -40,12 +46,15 @@ def add_email_column():
         print("✅ EMAIL COLUMN ADDED!")
         print("=" * 60)
         
-        cursor.execute("SHOW COLUMNS FROM users WHERE Field='email'")
+        cursor.execute("""
+            SELECT data_type FROM information_schema.columns 
+            WHERE table_name='users' AND column_name='email'
+        """)
         col_info = cursor.fetchone()
-        print(f"\n✓ Email column type: {col_info[1]}")
+        print(f"\n✓ Email column type: {col_info[0]}")
         print("✓ Email is UNIQUE - prevents duplicate registrations")
         
-    except mysql.connector.Error as e:
+    except psycopg2.Error as e:
         print(f"❌ Error: {e}")
         return False
     

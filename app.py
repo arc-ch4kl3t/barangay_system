@@ -1,11 +1,12 @@
 from flask import jsonify, Flask, render_template, request, redirect, url_for, session, flash, send_file, has_request_context
 import psycopg2
+from psycopg2.extras import RealDictCursor
 from docx import Document
 from io import BytesIO
 import json
 import os
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from datetime import datetime, timedelta  # <--- ADD timedelta
+from datetime import datetime, timedelta
 from docx.shared import Inches, Pt
 from docx.enum.section import WD_ORIENT
 from auth_utils import require_role, is_admin, is_user, generate_reset_token, send_password_reset_email, send_admin_notification
@@ -34,26 +35,36 @@ def get_db():
         raise Exception("DATABASE_URL not found")
 
     conn = psycopg2.connect(url, sslmode="require")
-    return conn, conn.cursor()
+    return conn, conn.cursor(cursor_factory=RealDictCursor)
 
 def ensure_auth_schema():
     """Keep user authentication tables compatible with role-based access."""
     conn, cursor = get_db()
 
-    cursor.execute("SHOW COLUMNS FROM users")
-    existing = {row['Field'] for row in cursor.fetchall()}
+    try:
+        # PostgreSQL way: query information_schema
+        cursor.execute("""
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_name='users'
+        """)
+        existing = {row['column_name'] for row in cursor.fetchall()}
+    except:
+        existing = set()
 
     added_role = False
-    columns = {
-        'email': "VARCHAR(255) NULL AFTER password",
-        'role': "VARCHAR(20) DEFAULT 'user' AFTER email",
-        'status': "VARCHAR(20) DEFAULT 'approved' AFTER role",
-        'signup_date': "TIMESTAMP NULL AFTER status"
-    }
-    for column, definition in columns.items():
+    columns_to_add = ['email', 'role', 'status', 'signup_date']
+    
+    for column in columns_to_add:
         if column not in existing:
-            cursor.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
-            added_role = added_role or column == 'role'
+            if column == 'email':
+                cursor.execute(f"ALTER TABLE users ADD COLUMN {column} VARCHAR(255) NULL")
+            elif column == 'role':
+                cursor.execute(f"ALTER TABLE users ADD COLUMN {column} VARCHAR(20) DEFAULT 'user'")
+                added_role = True
+            elif column == 'status':
+                cursor.execute(f"ALTER TABLE users ADD COLUMN {column} VARCHAR(20) DEFAULT 'approved'")
+            elif column == 'signup_date':
+                cursor.execute(f"ALTER TABLE users ADD COLUMN {column} TIMESTAMP NULL")
 
     if added_role:
         cursor.execute("UPDATE users SET role='admin' WHERE role IS NULL OR role=''")
@@ -63,7 +74,7 @@ def ensure_auth_schema():
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS password_resets (
-            id INT PRIMARY KEY AUTO_INCREMENT,
+            id SERIAL PRIMARY KEY,
             username VARCHAR(100) NOT NULL,
             token VARCHAR(255) UNIQUE NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -71,12 +82,13 @@ def ensure_auth_schema():
             used BOOLEAN DEFAULT FALSE,
             used_at TIMESTAMP NULL,
             ip_address VARCHAR(80),
-            attempt_count INT DEFAULT 1,
-            KEY idx_token (token),
-            KEY idx_username (username),
-            KEY idx_used (used)
+            attempt_count INT DEFAULT 1
         )
     """)
+    
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_token ON password_resets (token)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_username ON password_resets (username)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_used ON password_resets (used)")
 
     conn.commit()
     conn.close()
@@ -157,19 +169,26 @@ def external_reset_url(token):
 def ensure_audit_log_schema():
     """Keep the audit log table compatible with the richer audit trail UI."""
     conn, cursor = get_db()
-    cursor.execute("SHOW COLUMNS FROM audit_logs")
-    existing = {row['Field'] for row in cursor.fetchall()}
-    columns = {
-        'user_id': "VARCHAR(100) NULL AFTER id",
-        'target_type': "VARCHAR(100) DEFAULT 'System' AFTER action_type",
-        'target_id': "VARCHAR(100) DEFAULT 'N/A' AFTER target_type",
-        'old_value': "TEXT NULL AFTER target_id",
-        'new_value': "TEXT NULL AFTER old_value",
-        'status': "VARCHAR(30) DEFAULT 'SUCCESS' AFTER new_value",
-        'ip_address': "VARCHAR(80) NULL AFTER status",
-        'user_agent': "VARCHAR(255) NULL AFTER ip_address"
+    try:
+        cursor.execute("""
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_name='audit_logs'
+        """)
+        existing = {row['column_name'] for row in cursor.fetchall()}
+    except:
+        existing = set()
+    
+    columns_to_add = {
+        'user_id': "VARCHAR(100) NULL",
+        'target_type': "VARCHAR(100) DEFAULT 'System'",
+        'target_id': "VARCHAR(100) DEFAULT 'N/A'",
+        'old_value': "TEXT NULL",
+        'new_value': "TEXT NULL",
+        'status': "VARCHAR(30) DEFAULT 'SUCCESS'",
+        'ip_address': "VARCHAR(80) NULL",
+        'user_agent': "VARCHAR(255) NULL"
     }
-    for column, definition in columns.items():
+    for column, definition in columns_to_add.items():
         if column not in existing:
             cursor.execute(f"ALTER TABLE audit_logs ADD COLUMN {column} {definition}")
     conn.commit()
@@ -321,9 +340,10 @@ def signup():
             cursor.execute("""
                 INSERT INTO users (username, password, email, role, status, signup_date) 
                 VALUES (%s, %s, %s, %s, %s, NOW())
+                RETURNING id
             """, (username, password, email, 'user', 'pending'))
             
-            new_user_id = cursor.lastrowid
+            new_user_id = cursor.fetchone()['id']
             conn.commit()
 
             # Log the signup
@@ -669,9 +689,10 @@ def register_user():
             cursor.execute("""
                 INSERT INTO users (username, password, email, role) 
                 VALUES (%s, %s, %s, %s)
+                RETURNING id
             """, (username, password, email, role))
             
-            new_user_id = cursor.lastrowid
+            new_user_id = cursor.fetchone()['id']
             conn.commit()
 
             # Log the action
@@ -1047,7 +1068,7 @@ def search_households():
         SELECT hh.id, hh.surname, hh.house_number, COUNT(h.id) as count
         FROM households hh
         LEFT JOIN household h ON hh.id = h.household_id
-        WHERE hh.surname LIKE %s OR CAST(hh.id AS CHAR) LIKE %s OR hh.house_number LIKE %s
+        WHERE hh.surname LIKE %s OR CAST(hh.id AS TEXT) LIKE %s OR hh.house_number LIKE %s
         GROUP BY hh.id
         LIMIT 10
     """
@@ -1186,8 +1207,9 @@ def add_member():
             cursor.execute("""
                 INSERT INTO household (firstname, middlename, surname, age, birthdate, gender, civil_status, occupation, household_id, status) 
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'Active')
+                RETURNING id
             """, data)
-            new_member_id = cursor.lastrowid
+            new_member_id = cursor.fetchone()['id']
             conn.commit()
             full_name = f"{request.form['firstname']} {request.form['surname']}"
             log_audit(
@@ -1368,8 +1390,8 @@ def add_household():
                                  from_member=from_member, 
                                  **post_resident_data)
         
-        cursor.execute("INSERT INTO households (surname, house_number, address) VALUES (%s, %s, %s)", (surname, h_num, addr))
-        new_household_id = cursor.lastrowid
+        cursor.execute("INSERT INTO households (surname, house_number, address) VALUES (%s, %s, %s) RETURNING id", (surname, h_num, addr))
+        new_household_id = cursor.fetchone()['id']
         conn.commit()
         log_audit(
             session.get('username', 'admin'),
@@ -1542,7 +1564,7 @@ def print_households_report():
                     SELECT MIN(al.created_at)
                     FROM audit_logs al
                     WHERE al.target_type = 'Household'
-                      AND al.target_id = CAST(hh.id AS CHAR)
+                      AND al.target_id = CAST(hh.id AS TEXT)
                       AND al.action_type = 'ADD'
                 ) AS household_registered
             FROM households hh
@@ -1814,14 +1836,14 @@ def print_all_members():
                     SELECT MIN(al.created_at)
                     FROM audit_logs al
                     WHERE al.target_type = 'Resident'
-                      AND al.target_id = CAST(h.id AS CHAR)
+                      AND al.target_id = CAST( AS TEXT)
                       AND al.action_type = 'ADD'
                 ) AS registration_date,
                 (
                     SELECT MIN(al.created_at)
                     FROM audit_logs al
                     WHERE al.target_type = 'Resident'
-                      AND al.target_id = CAST(h.id AS CHAR)
+                      AND al.target_id = CAST( AS TEXT)
                       AND al.action_type = 'UPDATE'
                       AND (
                           al.new_value LIKE '%"status": "Deceased"%'
@@ -2014,14 +2036,14 @@ def api_preview_residents():
                     SELECT MIN(al.created_at)
                     FROM audit_logs al
                     WHERE al.target_type = 'Resident'
-                      AND al.target_id = CAST(h.id AS CHAR)
+                      AND al.target_id = CAST( AS TEXT)
                       AND al.action_type = 'ADD'
                 ) AS registration_date,
                 (
                     SELECT MIN(al.created_at)
                     FROM audit_logs al
                     WHERE al.target_type = 'Resident'
-                      AND al.target_id = CAST(h.id AS CHAR)
+                      AND al.target_id = CAST( AS TEXT)
                       AND al.action_type = 'UPDATE'
                       AND (
                           al.new_value LIKE '%"status": "Deceased"%'
@@ -2123,7 +2145,7 @@ def api_preview_households():
                     SELECT MIN(al.created_at)
                     FROM audit_logs al
                     WHERE al.target_type = 'Household'
-                      AND al.target_id = CAST(hh.id AS CHAR)
+                      AND al.target_id = CAST( AS TEXT)
                       AND al.action_type = 'ADD'
                 ) AS registration_date
             FROM households hh
@@ -2344,14 +2366,14 @@ def api_dashboard():
                         SELECT MIN(al.created_at)
                         FROM audit_logs al
                         WHERE al.target_type = 'Resident'
-                          AND al.target_id = CAST(h.id AS CHAR)
+                          AND al.target_id = CAST( AS TEXT)
                           AND al.action_type = 'ADD'
                     ) AS registration_date,
                     (
                         SELECT MIN(al.created_at)
                         FROM audit_logs al
                         WHERE al.target_type = 'Resident'
-                          AND al.target_id = CAST(h.id AS CHAR)
+                          AND al.target_id = CAST( AS TEXT)
                           AND al.action_type = 'UPDATE'
                           AND (
                               al.new_value LIKE '%"status": "Deceased"%'
@@ -2409,7 +2431,7 @@ def api_dashboard():
                     SELECT MIN(al.created_at)
                     FROM audit_logs al
                     WHERE al.target_type = 'Household'
-                      AND al.target_id = CAST(hh.id AS CHAR)
+                      AND al.target_id = CAST( AS TEXT)
                       AND al.action_type = 'ADD'
                 ) AS registration_date
             FROM households hh

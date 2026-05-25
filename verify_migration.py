@@ -1,17 +1,19 @@
 #!/usr/bin/env python
 """Verify Step 1: Database Migration"""
 
-import mysql.connector
+import os
 import sys
+import psycopg2
+from psycopg2.extras import RealDictCursor
+
+database_url = os.environ.get("DATABASE_URL")
+if not database_url:
+    print("❌ DATABASE_URL environment variable not set!")
+    sys.exit(1)
 
 try:
-    conn = mysql.connector.connect(
-        host='localhost',
-        user='root',
-        password='',
-        database='barangay_db'
-    )
-    cursor = conn.cursor(dictionary=True)
+    conn = psycopg2.connect(database_url, sslmode="require")
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
 
     print("\n" + "="*50)
     print("STEP 1 VERIFICATION - Database Migration")
@@ -19,17 +21,20 @@ try:
 
     # Check 1: Users table has role column
     print("\n✓ CHECKING USERS TABLE...")
-    cursor.execute('DESCRIBE users;')
+    cursor.execute("""
+        SELECT column_name, data_type FROM information_schema.columns 
+        WHERE table_name='users' ORDER BY ordinal_position
+    """)
     columns = cursor.fetchall()
     has_role = False
     for col in columns:
-        if col['Field'] == 'role':
+        if col['column_name'] == 'role':
             has_role = True
-            print(f"  ✓ role column found: {col['Type']}")
-        if col['Field'] == 'username':
-            print(f"  ✓ username column: {col['Type']}")
-        if col['Field'] == 'password':
-            print(f"  ✓ password column: {col['Type']}")
+            print(f"  ✓ role column found: {col['data_type']}")
+        if col['column_name'] == 'username':
+            print(f"  ✓ username column: {col['data_type']}")
+        if col['column_name'] == 'password':
+            print(f"  ✓ password column: {col['data_type']}")
 
     if not has_role:
         print("  ✗ ERROR: role column NOT found!")
@@ -38,11 +43,14 @@ try:
     # Check 2: Password resets table exists
     print("\n✓ CHECKING PASSWORD_RESETS TABLE...")
     try:
-        cursor.execute('DESCRIBE password_resets;')
+        cursor.execute("""
+            SELECT column_name, data_type FROM information_schema.columns 
+            WHERE table_name='password_resets' ORDER BY ordinal_position
+        """)
         columns = cursor.fetchall()
         print("  ✓ Table exists with columns:")
         for col in columns:
-            print(f"    - {col['Field']}: {col['Type']}")
+            print(f"    - {col['column_name']}: {col['data_type']}")
     except Exception as e:
         print(f"  ✗ ERROR: Table does not exist: {e}")
         sys.exit(1)
@@ -80,7 +88,7 @@ try:
     print("  → Create .env file with Gmail credentials")
     print("\n")
 
-except mysql.connector.Error as err:
+except psycopg2.Error as err:
     print(f"\n✗ DATABASE ERROR: {err}")
     sys.exit(1)
 except Exception as e:

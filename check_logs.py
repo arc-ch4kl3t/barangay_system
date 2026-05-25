@@ -1,6 +1,14 @@
-import mysql.connector
-conn = mysql.connector.connect(host='localhost', user='root', password='', database='barangay_db')
-cursor = conn.cursor(dictionary=True)
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
+
+database_url = os.environ.get("DATABASE_URL")
+if not database_url:
+    print("❌ DATABASE_URL environment variable not set!")
+    exit(1)
+
+conn = psycopg2.connect(database_url, sslmode="require")
+cursor = conn.cursor(cursor_factory=RealDictCursor)
 
 # Check audit_logs table data
 print('=== AUDIT LOGS DATA ===')

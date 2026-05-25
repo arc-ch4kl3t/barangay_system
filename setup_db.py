@@ -1,16 +1,17 @@
-import mysql.connector
+import os
+import psycopg2
 
 # Read the database.sql file
 with open('database.sql', 'r') as f:
     sql_content = f.read()
 
-# Connect to MySQL
-conn = mysql.connector.connect(
-    host="localhost",
-    user="root",
-    password=""
-)
+# Connect to PostgreSQL
+database_url = os.environ.get("DATABASE_URL")
+if not database_url:
+    print("❌ DATABASE_URL environment variable not set!")
+    exit(1)
 
+conn = psycopg2.connect(database_url, sslmode="require")
 cursor = conn.cursor()
 
 # Execute the SQL statements
