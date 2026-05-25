@@ -21,6 +21,7 @@ def init_db():
     conn = psycopg2.connect(os.environ.get("DATABASE_URL"))
     cur = conn.cursor()
 
+    # 1. Create table
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -31,11 +32,18 @@ def init_db():
     );
     """)
 
+    # 2. Create admin user
+    cur.execute("""
+    INSERT INTO users (username, email, password, role)
+    VALUES ('Ch4kl3t', 'lorainenina49@gmail.com', 'l0r41n322', 'admin')
+    ON CONFLICT (username) DO NOTHING;
+    """)
+
     conn.commit()
     cur.close()
     conn.close()
 
-    return "DB CREATED SUCCESSFULLY"
+    return "DB + ADMIN CREATED"
 
 ROLE_SESSION_KEY = 'role_sessions'
 PUBLIC_ENDPOINTS = {
