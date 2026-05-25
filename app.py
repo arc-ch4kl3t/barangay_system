@@ -1235,7 +1235,7 @@ def add_member():
             )
             conn.close()
             return redirect(url_for('view_household', household_id=fixed_hh_id) if fixed_hh_id else url_for('view_members'))
-        except IntegrityError:
+        except Exception as e:
             conn.rollback()
             cursor.execute("SELECT * FROM households")
             households_list = cursor.fetchall()
