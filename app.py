@@ -1,6 +1,5 @@
 from flask import jsonify, Flask, render_template, request, redirect, url_for, session, flash, send_file, has_request_context
-import mysql.connector
-from mysql.connector import IntegrityError
+import psycopg2
 from docx import Document
 from io import BytesIO
 import json
@@ -11,8 +10,7 @@ from docx.shared import Inches, Pt
 from docx.enum.section import WD_ORIENT
 from auth_utils import require_role, is_admin, is_user, generate_reset_token, send_password_reset_email, send_admin_notification
 from urllib.parse import parse_qs, urlparse
-import os
-import psycopg2
+
 
 app = Flask(__name__)
 app.secret_key = "your_secret_key_here"
@@ -35,7 +33,7 @@ def get_db():
     if not url:
         raise Exception("DATABASE_URL not found")
 
-    conn = psycopg2.connect(url)
+    conn = psycopg2.connect(url, sslmode="require")
     return conn, conn.cursor()
 
 def ensure_auth_schema():
