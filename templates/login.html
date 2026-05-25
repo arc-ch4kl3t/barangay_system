@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Barangay Management System</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="{{ url_for('static', filename='icons/lucide-icons.js') }}"></script>
+    <style>
+        :root {
+            --primary: #1B3A57;
+            --accent: #3498db;
+            --success: #27ae60;
+            --danger: #e74c3c;
+            --bg-light: #f8fafc;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            --white: #ffffff;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-light);
+            /* Cleaner, more professional subtle gradient */
+            background-image: 
+                radial-gradient(circle at 20% 20%, rgba(27, 58, 87, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 80% 80%, rgba(52, 152, 219, 0.05) 0%, transparent 40%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .login-card {
+            background: var(--white);
+            padding: 50px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+            border: 1px solid var(--border-color);
+            width: 420px;
+            max-width: 90%;
+            text-align: center;
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        .login-header {
+            margin-bottom: 40px;
+        }
+
+        /* Using the same Breadcrumb style from your household details */
+        .breadcrumb-tag {
+            display: block;
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .login-header h2 {
+            margin: 0;
+            color: var(--primary);
+            font-size: 32px;
+            font-weight: 800;
+            letter-spacing: -1px;
+        }
+
+        /* Standardized Input Styling */
+        .form-group {
+            margin-bottom: 24px;
+            text-align: left;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+        }
+
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            padding: 14px 16px;
+            border-radius: 12px;
+            border: 1.5px solid var(--border-color);
+            font-size: 15px;
+            font-family: inherit;
+            box-sizing: border-box;
+            transition: all 0.2s;
+            background: #ffffff;
+            color: var(--primary);
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 4px rgba(52, 152, 219, 0.1);
+        }
+
+        /* Button matching your Dashboard 'Add Member' and 'Generate' style */
+        .btn-login {
+            width: 100%;
+            padding: 16px;
+            background-color: var(--primary);
+            color: var(--white);
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .btn-login:hover {
+            background-color: #244a6e;
+            transform: translateY(-1px);
+            box-shadow: 0 5px 15px rgba(27, 58, 87, 0.2);
+        }
+
+        /* Error box matching your Modal alerts */
+        .error-box {
+            color: var(--danger);
+            background-color: #fff1f2;
+            padding: 14px;
+            border-radius: 12px;
+            border: 1px solid #fecdd3;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .error-box.success,
+        .error-box.info {
+            color: var(--primary);
+            background-color: #eff6ff;
+            border-color: #bfdbfe;
+        }
+
+        .error-box.warning {
+            color: #92400e;
+            background-color: #fffbeb;
+            border-color: #fde68a;
+        }
+
+        .footer-note {
+            margin-top: 30px;
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .login-footer-links {
+            margin-top: 25px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .login-footer-links a {
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+            color: var(--accent);
+            transition: all 0.2s;
+            border: 1px solid transparent;
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        .login-footer-links a:hover {
+            color: var(--primary);
+            background-color: rgba(52, 152, 219, 0.1);
+            border-color: var(--accent);
+        }
+
+        .login-divider {
+            margin: 20px 0;
+            text-align: center;
+            position: relative;
+        }
+
+        .login-divider::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: var(--border-color);
+        }
+
+        .login-divider span {
+            position: relative;
+            background: var(--white);
+            padding: 0 10px;
+            color: var(--text-muted);
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+
+<div class="login-card">
+    <div class="login-header">
+        <span class="breadcrumb-tag">Secure Portal</span>
+        <h2>System Login</h2>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% set category, message = messages[0] %}
+            <div class="error-box {{ category }}">
+                <i data-lucide="{{ 'check-circle' if category == 'success' else 'info' if category == 'info' else 'alert-circle' }}" style="width:18px;height:18px;"></i> {{ message }}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <form action="{{ url_for('login') }}" method="POST">
+        <div class="form-group">
+            <label>Authorized Username</label>
+            <input type="text" name="username" placeholder="Username" required autofocus>
+        </div>
+        
+        <div class="form-group">
+            <label>Security Password</label>
+            <input type="password" name="password" placeholder="Password" required>
+        </div>
+
+        <button type="submit" class="btn-login">
+            Login <span></span>
+        </button>
+    </form>
+
+    <div class="login-footer-links">
+        <a href="{{ url_for('forgot_password') }}"><i data-lucide="lock-keyhole" style="width:14px;height:14px;vertical-align:-2px;margin-right:6px;"></i> Forgot Password?</a>
+    </div>
+
+    <div class="login-divider">
+        <span>Don't have an account?</span>
+    </div>
+
+    <div class="footer-note" style="margin-bottom: 20px;">
+        Residents can self-register for view-only access.<br>
+        Your account will be reviewed by an administrator.
+    </div>
+
+    <a href="{{ url_for('signup') }}" style="display: block; text-align: center; color: var(--accent); text-decoration: none; font-weight: 700; padding: 12px; margin-bottom: 20px; border: 2px solid var(--accent); border-radius: 8px; transition: all 0.2s;" onmouseover="this.style.backgroundColor='rgba(52,152,219,0.1)'" onmouseout="this.style.backgroundColor='transparent'">
+        <i data-lucide="edit-3" style="width:14px;height:14px;vertical-align:-2px;margin-right:6px;"></i> Create New Account
+    </a>
+
+    <div class="login-divider" style="margin-top: 10px;">
+        <span>Admin Registration</span>
+    </div>
+
+    <div class="footer-note" style="margin-bottom: 20px;">
+        Only authorized administrators can create new user accounts.<br>
+        Contact your system administrator to request access.
+    </div>
+
+    <div class="footer-note">
+        &copy; 2026 Community Registry Information System
+    </div>
+</div>
+
+</body>
+</html>

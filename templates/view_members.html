@@ -1,0 +1,496 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-container">
+    <div class="header">
+        <div class="title-group">
+            <span class="breadcrumb">Records / Overview</span>
+            <h1>Residents</h1>
+        </div>
+        <div class="header-actions">
+            <button class="btn-print-all" onclick="openPrintModal({{ members|length }})">
+                <i data-lucide="printer" style="width:16px;height:16px;"></i>
+                Print Options
+            </button>
+            <a href="{{ url_for('add_member') }}" class="btn-add-member">
+                <span class="icon">+</span> Add Resident
+            </a>
+        </div>
+    </div>
+
+    <div class="info-grid">
+        <div class="info-item accent-primary">
+            <label>Total Population</label>
+            <p>{{ active_residents }} Residents</p>
+        </div>
+        <div class="info-item accent-danger">
+            <label>Deceased Residents</label>
+            <p>{{ deceased_residents }} Residents</p>
+        </div>
+        <div class="info-item accent-success">
+            <label>Database Status</label>
+            <p>Live / Active</p>
+        </div>
+    </div>
+
+    <div class="table-card">
+        <div class="search-panel">
+            <div class="search-wrapper">
+                <input type="text" 
+                       id="member-search" 
+                       placeholder="Search by resident's name..." 
+                       autocomplete="off">
+                <div id="member-suggestions" class="suggestions-panel"></div>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 50px;">#</th>
+                        <th>Full Name</th>
+                        <th>Birthdate</th>
+                        <th style="width: 80px;">Age</th> 
+                        <th style="width: 100px;">Gender</th> 
+                        <th>Civil Status</th>
+                        <th>Occupation</th>
+                        <th>Household</th>
+                        <th>Status</th>
+                        <th style="text-align: center; width: 160px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="members-table">
+                    {% for member in members %}
+                    <tr class="resident-row">
+                        <td class="id-cell">{{ loop.index }}</td>
+                        <td class="resident-name">
+                            <div class="name-container">
+                                <span class="primary-name">{{ member['surname'] }}, {{ member['firstname'] }}</span>
+                                <span class="middle-initial">{{ member['middlename'] }}</span>
+                            </div>
+                        </td>
+                        <td><span class="birth-text">{{ member['birthdate'] }}</span></td>
+                        <td><span class="age-badge">{{ member['age'] }}</span></td>
+                        <td><span class="gender-text">{{ member['gender'] }}</span></td>
+                        <td>{{ member['civil_status'] }}</td>
+                        <td><span class="occ-text">{{ member['occupation'] if member['occupation'] else 'N/A' }}</span></td>
+                        <td>
+                            {% if member.household_id %}
+                                <a href="{{ url_for('view_household', household_id=member.household_id) }}" class="household-link">
+                                    {{ member.household_name if member.household_name else 'View' }}
+                                </a>
+                            {% else %}
+                                <span class="no-household">Unassigned</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="status-badge {{ 'deceased' if member.status == 'Deceased' else 'active' }}">
+                                {{ member.status or 'Active' }}
+                            </span>
+                        </td>
+                        <td class="actions">
+                            <a class="btn edit-btn" href="{{ url_for('edit_member', id=member['id']) }}">Edit</a>
+                            <a class="btn delete-btn" href="javascript:void(0)" onclick="openDeleteModal('{{ url_for('delete_member', id=member['id']) }}')">Delete</a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="10" style="text-align: center; padding: 40px; color: #64748b;">No records found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div id="printModal" class="modal-overlay">
+    <div class="modal-content print-filter-modal">
+        <div class="modal-icon print-icon" style="color: #10b981;"><i data-lucide="printer"></i></div>
+        <h3>Print Options</h3>
+        <p>Choose exactly which resident records should be included in the printable report.</p>
+
+        <form id="printFilterForm" class="print-filter-form" method="GET" action="{{ url_for('print_all_members') }}">
+            <div class="filter-field">
+                <label for="report_type">Report Type</label>
+                <select id="report_type" name="report_type">
+                    <option value="all">All residents</option>
+                    <option value="registered">Residents registered by date</option>
+                    <option value="deceased">Deceased residents by date</option>
+                </select>
+            </div>
+
+            <div class="filter-grid">
+                <div class="filter-field">
+                    <label for="print_gender">Gender</label>
+                    <select id="print_gender" name="gender">
+                        <option value="">All genders</option>
+                        <option value="Male">Male residents only</option>
+                        <option value="Female">Female residents only</option>
+                    </select>
+                </div>
+
+                <div class="filter-field date-filter">
+                    <label for="print_month">Month</label>
+                    <select id="print_month" name="month">
+                        <option value="">Any month</option>
+                        <option value="1">January</option>
+                        <option value="2">February</option>
+                        <option value="3">March</option>
+                        <option value="4">April</option>
+                        <option value="5">May</option>
+                        <option value="6">June</option>
+                        <option value="7">July</option>
+                        <option value="8">August</option>
+                        <option value="9">September</option>
+                        <option value="10">October</option>
+                        <option value="11">November</option>
+                        <option value="12">December</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="filter-grid date-filter">
+                <div class="filter-field">
+                    <label for="date_from">From Date</label>
+                    <input id="date_from" type="date" name="date_from">
+                </div>
+
+                <div class="filter-field">
+                    <label for="date_to">To Date</label>
+                    <input id="date_to" type="date" name="date_to">
+                </div>
+            </div>
+
+            <p id="printFilterHint" class="filter-hint">All residents will be printed. Use Gender to print only male or female residents.</p>
+
+            <div class="modal-footer">
+                <button type="button" class="modal-btn secondary" onclick="closePrintModal()">Cancel</button>
+                <button type="submit" class="modal-btn success-btn">Generate</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="deleteModal" class="modal-overlay">
+    <div class="modal-content">
+        <div class="modal-icon"><i data-lucide="alert-circle"></i></div>
+        <h3>Confirm Deletion</h3>
+        <p>Are you sure you want to delete this resident record? This action cannot be undone.</p>
+        <div class="modal-footer">
+            <button class="modal-btn cancel" onclick="closeDeleteModal()">Cancel</button>
+            <a id="confirmDeleteBtn" href="#" class="modal-btn confirm">Delete Record</a>
+        </div>
+    </div>
+</div>
+
+<div id="noMembersModal" class="modal-overlay">
+    <div class="modal-content">
+        <h3>No Records Found</h3>
+        <p>There are no residents in the database to export.</p>
+        <div class="modal-footer">
+            <button class="modal-btn cancel" onclick="closeNoMembersModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<style>
+    :root {
+        --primary: #1B3A57;
+        --accent: #3498db;
+        --secondary: #64748b;
+        --danger: #e11d48;
+        --success: #10b981;
+        --border-color: #e2e8f0;
+    }
+
+    .page-container { max-width: 1400px; margin: 40px auto; padding: 0 30px; font-family: 'Inter', sans-serif; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; }
+    .header h1 { margin: 4px 0 0 0; color: var(--primary); font-size: 28px; font-weight: 800; }
+    .breadcrumb { font-size: 12px; color: var(--secondary); text-transform: uppercase; font-weight: 600; }
+
+    .header-actions { display: flex; gap: 12px; }
+    .btn-add-member, .btn-print-all { 
+        display: flex; align-items: center; gap: 8px; padding: 12px 24px; 
+        border-radius: 10px; text-decoration: none; font-size: 14px; font-weight: 600; 
+        transition: all 0.2s ease; border: none; cursor: pointer;
+    }
+    .btn-add-member { background: var(--primary); color: white; }
+    .btn-print-all { background: white; color: var(--primary); border: 1.5px solid var(--border-color); }
+
+    .info-grid { display: flex; gap: 20px; margin-bottom: 32px; }
+    .info-item { background: white; padding: 24px; border-radius: 16px; border: 1px solid var(--border-color); flex: 1; }
+    .accent-primary { border-left: 5px solid var(--primary); }
+    .accent-success { border-left: 5px solid var(--success); }
+    .accent-danger { border-left: 5px solid var(--danger); }
+    
+    .info-item label { display: block; font-size: 12px; color: var(--secondary); font-weight: 600; margin-bottom: 8px; }
+    .info-item p { margin: 0; font-size: 20px; font-weight: 700; color: #1e293b; }
+
+    .table-card { background: white; border-radius: 16px; border: 1px solid var(--border-color); box-shadow: 0 10px 25px rgba(0,0,0,0.05); overflow: hidden; }
+    .search-panel { padding: 20px 24px; border-bottom: 1px solid var(--border-color); }
+
+    .search-wrapper { position: relative; width: 100%; }
+    #member-search { width: 100%; padding: 14px 20px; font-size: 15px; border: 1.5px solid var(--border-color); border-radius: 12px; box-sizing: border-box; }
+
+    .suggestions-panel {
+        position: absolute; top: calc(100% + 5px); left: 0; right: 0;
+        background: white; border: 1px solid var(--border-color); border-radius: 12px;
+        z-index: 9999 !important; display: none; box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+        max-height: 250px; overflow-y: auto;
+    }
+
+    .search-item { padding: 12px 20px; cursor: pointer; border-bottom: 1px solid #f1f5f9; text-align: left;}
+    .search-item:hover { background: #f0f7ff; }
+    .si-name { display: block; font-weight: 700; color: var(--primary); font-size: 14px; pointer-events: none; }
+    .si-sub { display: block; font-size: 12px; color: var(--secondary); pointer-events: none; }
+
+    /* Yellow Highlight Styling */
+    mark {
+        background: #fef08a; 
+        color: #1e293b;
+        padding: 0 2px;
+        border-radius: 2px;
+        font-weight: 800;
+    }
+
+    .table-responsive { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 1100px; }
+    th { background: #f8fafc; color: var(--secondary); font-size: 12px; font-weight: 600; text-transform: uppercase; padding: 18px 24px; text-align: left; }
+    td { padding: 18px 24px; font-size: 14px; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
+    
+    .status-badge { padding: 6px 14px; border-radius: 8px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+    .status-badge.active { background: #dcfce7; color: #166534; }
+    .status-badge.deceased { background: #fee2e2; color: #991b1b; }
+    
+    .actions { display: flex; gap: 10px; }
+    .btn { padding: 8px 16px; border-radius: 8px; text-decoration: none; font-size: 13px; font-weight: 600; }
+    .edit-btn { background: #f1f5f9; color: var(--primary); border: 1px solid #e2e8f0; }
+    .delete-btn { background: #fff1f2; color: var(--danger); cursor: pointer; border: none; }
+
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.7); z-index: 3000; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+    .modal-content { background: white; padding: 40px; border-radius: 24px; width: 420px; text-align: center; }
+    .print-filter-modal { width: min(560px, calc(100vw - 32px)); text-align: left; }
+    .print-filter-modal .modal-icon, .print-filter-modal h3, .print-filter-modal > p { text-align: center; }
+    .modal-icon { font-size: 50px; margin-bottom: 20px; }
+    .modal-footer { display: flex; gap: 12px; margin-top: 35px; }
+    
+    .modal-btn { 
+        flex: 1; padding: 14px; border: none; border-radius: 12px; 
+        font-weight: 700; cursor: pointer; transition: 0.2s; font-size: 14px;
+        display: flex; align-items: center; justify-content: center; text-decoration: none;
+    }
+    .modal-btn.secondary { background: #f1f5f9; color: #475569; }
+    .modal-btn.success-btn { background: var(--success); color: white; }
+    .modal-btn.cancel { background: #f1f5f9; color: #475569; }
+    .modal-btn.confirm { background: var(--danger); color: white; }
+
+    .print-filter-form { margin-top: 22px; }
+    .filter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .filter-field { display: flex; flex-direction: column; gap: 7px; margin-top: 14px; }
+    .filter-field label {
+        color: var(--primary);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.4px;
+        text-transform: uppercase;
+    }
+    .filter-field select, .filter-field input {
+        width: 100%;
+        border: 1.5px solid var(--border-color);
+        border-radius: 10px;
+        box-sizing: border-box;
+        color: #1e293b;
+        font-size: 14px;
+        padding: 12px 14px;
+    }
+    .filter-field select:focus, .filter-field input:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 4px rgba(52, 152, 219, 0.1);
+        outline: none;
+    }
+    .filter-hint {
+        background: #f8fafc;
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        color: #475569;
+        font-size: 13px;
+        line-height: 1.5;
+        margin: 18px 0 0;
+        padding: 12px 14px;
+        text-align: left;
+    }
+
+    @media (max-width: 850px) {
+        .info-grid { flex-direction: column; }
+        .filter-grid { grid-template-columns: 1fr; gap: 0; }
+    }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const searchBox = document.getElementById('member-search');
+    const suggestions = document.getElementById('member-suggestions');
+    const rows = document.querySelectorAll('.resident-row');
+    let lastSuggestions = [];
+
+    function filterTable(val, exactMatch = false) {
+        const query = val.toLowerCase().trim();
+        suggestions.style.display = 'none';
+
+        rows.forEach(row => {
+            const nameElement = row.querySelector('.primary-name');
+            const middleElement = row.querySelector('.middle-initial');
+            const nameText = nameElement ? nameElement.innerText.toLowerCase() : "";
+            const fullNameText = `${nameText} ${middleElement ? middleElement.innerText.toLowerCase() : ""}`.trim();
+            
+            if (query === "" || (exactMatch ? (nameText === query || fullNameText === query) : fullNameText.includes(query))) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    }
+
+    function renderSuggestions(data, query) {
+        suggestions.innerHTML = "";
+
+        if (!data || data.length === 0) {
+            suggestions.style.display = "none";
+            return;
+        }
+
+        suggestions.style.display = "block";
+
+        data.forEach(item => {
+            let div = document.createElement("div");
+            div.className = "search-item";
+            
+            const fullName = item.name ? item.name : `${item.surname}, ${item.firstname}`;
+            const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`(${escapedQuery})`, 'gi');
+            const highlightedName = fullName.replace(regex, `<mark>$1</mark>`);
+            
+            div.innerHTML = `
+                <span class="si-name">${highlightedName}</span>
+                <span class="si-sub">HH: ${item.household_name || 'Unassigned'} | ${item.occupation || 'N/A'}</span>
+            `;
+
+            div.onmousedown = (e) => {
+                e.preventDefault(); 
+                searchBox.value = fullName; 
+                filterTable(fullName, true);
+            };
+            suggestions.appendChild(div);
+        });
+    }
+
+    searchBox.addEventListener("input", async function () {
+        const query = this.value.trim();
+        
+        if (query.length === 0) { 
+            lastSuggestions = [];
+            rows.forEach(row => row.style.display = '');
+            suggestions.style.display = "none"; 
+            return; 
+        }
+
+        try {
+            let res = await fetch(`/search_members?q=${encodeURIComponent(query)}`);
+            let data = await res.json();
+            lastSuggestions = data;
+            renderSuggestions(data, query);
+        } catch (err) { 
+            console.error("Search failed:", err); 
+        }
+    });
+
+    searchBox.addEventListener('keydown', async (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const query = searchBox.value.trim();
+            if (query.length === 0) {
+                filterTable("");
+                return;
+            }
+
+            const exactMatch = Array.from(rows).some(row => {
+                const nameElement = row.querySelector('.primary-name');
+                const middleElement = row.querySelector('.middle-initial');
+                const nameText = nameElement ? nameElement.innerText.toLowerCase().trim() : "";
+                const fullNameText = `${nameText} ${middleElement ? middleElement.innerText.toLowerCase().trim() : ""}`.trim();
+                return nameText === query.toLowerCase() || fullNameText === query.toLowerCase();
+            });
+
+            if (exactMatch) {
+                filterTable(query, true);
+                return;
+            }
+
+            if (lastSuggestions.length > 0) {
+                renderSuggestions(lastSuggestions, query);
+                return;
+            }
+
+            try {
+                let res = await fetch(`/search_members?q=${encodeURIComponent(query)}`);
+                lastSuggestions = await res.json();
+                renderSuggestions(lastSuggestions, query);
+            } catch (err) {
+                console.error("Search failed:", err);
+            }
+        }
+    });
+
+    document.addEventListener("mousedown", (e) => {
+        if (!searchBox.contains(e.target) && !suggestions.contains(e.target)) {
+            suggestions.style.display = "none";
+        }
+    });
+});
+
+function openDeleteModal(deleteUrl) {
+    document.getElementById('confirmDeleteBtn').href = deleteUrl;
+    document.getElementById('deleteModal').style.display = 'flex';
+}
+function closeDeleteModal() { document.getElementById('deleteModal').style.display = 'none'; }
+function openPrintModal(memberCount) {
+    if (memberCount === 0) {
+        document.getElementById('noMembersModal').style.display = 'flex';
+    } else {
+        document.getElementById('printModal').style.display = 'flex';
+        updatePrintFilterHint();
+    }
+}
+function closePrintModal() { document.getElementById('printModal').style.display = 'none'; }
+function closeNoMembersModal() { document.getElementById('noMembersModal').style.display = 'none'; }
+
+function updatePrintFilterHint() {
+    const reportType = document.getElementById('report_type');
+    const hint = document.getElementById('printFilterHint');
+    const dateFilters = document.querySelectorAll('.date-filter');
+    if (!reportType || !hint) return;
+
+    const showDateFilters = reportType.value === 'registered' || reportType.value === 'deceased';
+    dateFilters.forEach(field => field.style.display = showDateFilters ? '' : 'none');
+
+    if (reportType.value === 'deceased') {
+        hint.textContent = 'This prints residents marked Deceased. Month and dates use the audit log date when status was edited to Deceased.';
+    } else if (reportType.value === 'registered') {
+        hint.textContent = 'This prints residents by registration date. Month and dates use the audit log date when the resident was added.';
+    } else {
+        hint.textContent = 'All residents will be printed. Use Gender to print only male or female residents.';
+    }
+}
+
+document.getElementById('report_type')?.addEventListener('change', updatePrintFilterHint);
+updatePrintFilterHint();
+
+window.onclick = function(event) {
+    if (event.target.className === 'modal-overlay') {
+        closeDeleteModal(); closePrintModal(); closeNoMembersModal();
+    }
+}
+</script>
+{% endblock %}
