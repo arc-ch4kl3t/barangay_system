@@ -37,61 +37,79 @@ def get_db():
     conn = psycopg2.connect(url, sslmode="require")
     return conn, conn.cursor(cursor_factory=RealDictCursor)
 
-def ensure_auth_schema():
-    """Keep user authentication tables compatible with role-based access."""
-    conn, cursor = get_db()
-
+def ensure_auth_schema_safe():
+    """Safe schema initialization - creates users table IF NOT EXISTS first, then ensures all columns."""
     try:
-        # PostgreSQL way: query information_schema
+        conn, cursor = get_db()
+
+        # Step 1: Create users table IF NOT EXISTS
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(255) UNIQUE NOT NULL,
+                password VARCHAR(255) NOT NULL,
+                email VARCHAR(255),
+                role VARCHAR(20) DEFAULT 'user',
+                status VARCHAR(20) DEFAULT 'approved',
+                signup_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+
+        # Step 2: Check existing columns
         cursor.execute("""
             SELECT column_name FROM information_schema.columns 
             WHERE table_name='users'
         """)
         existing = {row['column_name'] for row in cursor.fetchall()}
-    except:
-        existing = set()
 
-    added_role = False
-    columns_to_add = ['email', 'role', 'status', 'signup_date']
-    
-    for column in columns_to_add:
-        if column not in existing:
-            if column == 'email':
-                cursor.execute(f"ALTER TABLE users ADD COLUMN {column} VARCHAR(255) NULL")
-            elif column == 'role':
-                cursor.execute(f"ALTER TABLE users ADD COLUMN {column} VARCHAR(20) DEFAULT 'user'")
-                added_role = True
-            elif column == 'status':
-                cursor.execute(f"ALTER TABLE users ADD COLUMN {column} VARCHAR(20) DEFAULT 'approved'")
-            elif column == 'signup_date':
-                cursor.execute(f"ALTER TABLE users ADD COLUMN {column} TIMESTAMP NULL")
+        # Step 3: Add missing columns
+        columns_to_add = {
+            'email': 'VARCHAR(255)',
+            'role': "VARCHAR(20) DEFAULT 'user'",
+            'status': "VARCHAR(20) DEFAULT 'approved'",
+            'signup_date': 'TIMESTAMP'
+        }
+        
+        for column, col_type in columns_to_add.items():
+            if column not in existing:
+                cursor.execute(f"ALTER TABLE users ADD COLUMN {column} {col_type}")
+                conn.commit()
 
-    if added_role:
-        cursor.execute("UPDATE users SET role='admin' WHERE role IS NULL OR role=''")
-    else:
+        # Step 4: Update default values
         cursor.execute("UPDATE users SET role='user' WHERE role IS NULL OR role=''")
-    cursor.execute("UPDATE users SET status='approved' WHERE status IS NULL OR status=''")
+        cursor.execute("UPDATE users SET status='approved' WHERE status IS NULL OR status=''")
+        conn.commit()
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS password_resets (
-            id SERIAL PRIMARY KEY,
-            username VARCHAR(100) NOT NULL,
-            token VARCHAR(255) UNIQUE NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            expires_at TIMESTAMP NOT NULL,
-            used BOOLEAN DEFAULT FALSE,
-            used_at TIMESTAMP NULL,
-            ip_address VARCHAR(80),
-            attempt_count INT DEFAULT 1
-        )
-    """)
-    
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_token ON password_resets (token)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_username ON password_resets (username)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_used ON password_resets (used)")
+        # Step 5: Create password_resets table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS password_resets (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(100) NOT NULL,
+                token VARCHAR(255) UNIQUE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL,
+                used BOOLEAN DEFAULT FALSE,
+                used_at TIMESTAMP NULL,
+                ip_address VARCHAR(80),
+                attempt_count INT DEFAULT 1
+            )
+        """)
+        
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_token ON password_resets (token)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_username ON password_resets (username)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_used ON password_resets (used)")
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Warning: Schema initialization error: {e}")
+        return False
+
+def ensure_auth_schema():
+    """Wrapper function for backward compatibility - calls safe version."""
+    return ensure_auth_schema_safe()
 
 def role_home_endpoint():
     return 'home' if session.get('role') == 'admin' else 'user_home'
@@ -237,39 +255,49 @@ def log_audit(username, action_type, details, household_context='N/A',
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        ensure_auth_schema()
-        username = request.form['username']
-        password = request.form['password']
-        conn, cursor = get_db()
-        cursor.execute("SELECT * FROM users WHERE username=%s AND password=%s", (username, password))
-        user = cursor.fetchone()
-        conn.close()
-        if user:
-            # Check account status
-            status = (user.get('status') or 'approved').lower()
-            if status == 'pending':
-                flash("Your account is pending admin approval. Please wait for confirmation.", "warning")
-                return redirect(url_for('login'))
-            elif status == 'rejected':
-                flash("Your account registration was rejected. Contact administrator for more details.", "danger")
+        try:
+            # Ensure schema exists before attempting login
+            ensure_auth_schema_safe()
+            
+            username = request.form.get('username', '').strip()
+            password = request.form.get('password', '').strip()
+            
+            if not username or not password:
+                flash("Username and password are required", "danger")
                 return redirect(url_for('login'))
             
-            role = (user.get('role') or 'user').lower()
-            if role not in {'admin', 'user'}:
-                role = 'user'
+            conn, cursor = get_db()
+            cursor.execute("SELECT * FROM users WHERE username=%s AND password=%s", (username, password))
+            user = cursor.fetchone()
+            conn.close()
+            
+            if user:
+                # Check account status
+                status = (user.get('status') or 'approved').lower()
+                if status == 'pending':
+                    flash("Your account is pending admin approval. Please wait for confirmation.", "warning")
+                    return redirect(url_for('login'))
+                elif status == 'rejected':
+                    flash("Your account registration was rejected. Contact administrator for more details.", "danger")
+                    return redirect(url_for('login'))
+                
+                role = (user.get('role') or 'user').lower()
+                if role not in {'admin', 'user'}:
+                    role = 'user'
 
-            _store_role_identity(role, username, user.get('id', username))
-            log_audit(username, 'LOGIN', f'User logged in with role: {session["role"]}', user_id=user.get('id'))
-            
-            # Route based on role
-            if session['role'] == 'admin':
-                return redirect(url_for('home'))
+                _store_role_identity(role, username, user.get('id', username))
+                log_audit(username, 'LOGIN', f'User logged in with role: {session["role"]}', user_id=user.get('id'))
+                
+                # Route based on role
+                if session['role'] == 'admin':
+                    return redirect(url_for('home'))
+                else:
+                    return redirect(url_for('user_home'))
             else:
-                return redirect(url_for('user_home'))
-        else:
-            flash("Invalid username or password", "danger")
-            return redirect(url_for('login'))
-    return render_template('login.html')
+                flash("Invalid username or password", "danger")
+                return redirect(url_for('login'))
+        except Exception as e:
+            print(f\"Login error: {e}\")\n            flash(f\"Login failed: {str(e)}\", \"danger\")\n            return redirect(url_for('login'))\n    return render_template('login.html')
 
 @app.route('/logout')
 def logout():
@@ -2613,5 +2641,13 @@ def api_dashboard():
         'households': households_list
     })
 
+def init_app():
+    """Initialize app - create all necessary tables at startup."""
+    with app.app_context():
+        print("Initializing database schema...")
+        ensure_auth_schema_safe()
+        print("Database schema initialized successfully.")
+
 if __name__ == '__main__':
+    init_app()
     app.run(debug=True)
