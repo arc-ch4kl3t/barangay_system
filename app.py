@@ -356,11 +356,27 @@ def login():
                 if role not in {'admin', 'user'}:
                     role = 'user'
 
+                # Set the full session before audit/redirect logic. The 500 error
+                # can happen when code reads session["role"] before Flask has a
+                # complete session for the current request, so use the verified
+                # local role and safe session access below.
+                session['role'] = role
+                session['username'] = username
+                session['user_id'] = user['id']
                 _store_role_identity(role, username, user['id'])
-                log_audit(username, 'LOGIN', f'User logged in with role: {session["role"]}', user_id=user['id'])
+
+                try:
+                    log_audit(
+                        username,
+                        'LOGIN',
+                        f'User logged in with role: {session.get("role", "user")}',
+                        user_id=user['id']
+                    )
+                except Exception as audit_error:
+                    print(f"Login audit skipped: {audit_error}")
                 
                 # Route based on role
-                if session['role'] == 'admin':
+                if session.get('role', 'user') == 'admin':
                     return redirect(url_for('home'))
                 else:
                     return redirect(url_for('user_home'))
@@ -735,7 +751,7 @@ def api_update_user_role():
         cursor.execute("UPDATE users SET role=%s WHERE id=%s", (new_role, user_id))
         conn.commit()
         
-        log_audit(session['username'], 'UPDATE', f'User role changed: {user["username"]} -> {new_role}',
+        log_audit(session.get('username', 'admin'), 'UPDATE', f'User role changed: {user["username"]} -> {new_role}',
                  target_type='User', target_id=str(user_id), old_value=f'role: {user["role"]}', new_value=f'role: {new_role}')
         
         conn.close()
