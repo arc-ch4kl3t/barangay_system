@@ -18,8 +18,9 @@ app.secret_key = "your_secret_key_here"
 
 @app.route("/init-db")
 def init_db():
-    conn = psycopg2.connect(os.environ.get("DATABASE_URL"))
-    cur = conn.cursor()
+    conn, cur = get_db()
+    print("DB INIT START")
+    print(f"DATABASE_URL source: environment variable present ({_database_url_source_confirmation()})")
 
     # 1. Create table
     cur.execute("""
@@ -28,18 +29,24 @@ def init_db():
         username TEXT UNIQUE,
         email TEXT UNIQUE,
         password TEXT,
-        role TEXT DEFAULT 'user'
+        role TEXT DEFAULT 'user',
+        status TEXT DEFAULT 'approved'
     );
     """)
 
     # 2. Create admin user
     cur.execute("""
-    INSERT INTO users (username, email, password, role)
-    VALUES ('Ch4kl3t', 'lorainenina49@gmail.com', 'l0r41n322', 'admin')
-    ON CONFLICT (username) DO NOTHING;
+    INSERT INTO users (username, email, password, role, status)
+    VALUES ('Ch4kl3t', 'lorainenina49@gmail.com', 'l0r41n322', 'admin', 'approved')
+    ON CONFLICT (username) DO UPDATE SET
+        email=EXCLUDED.email,
+        password=EXCLUDED.password,
+        role='admin',
+        status='approved';
     """)
 
     conn.commit()
+    print("ADMIN UPSERT OK")
     cur.close()
     conn.close()
 
@@ -56,6 +63,8 @@ CONTEXT_AWARE_ENDPOINTS = {
     'change_password', 'logout'
 }
 
+AUTH_SCHEMA_INITIALIZED = False
+
 
 
 def get_db():
@@ -66,10 +75,23 @@ def get_db():
     conn = psycopg2.connect(url, sslmode="require")
     return conn, conn.cursor(cursor_factory=RealDictCursor)
 
+def _database_url_source_confirmation():
+    url = os.environ.get("DATABASE_URL", "")
+    parsed = urlparse(url)
+    database_name = parsed.path.lstrip("/") if parsed.path else "unknown"
+    return f"host={parsed.hostname or 'unknown'} db={database_name}"
+
 def ensure_auth_schema_safe():
     """Safe schema initialization - creates users table IF NOT EXISTS first, then ensures all columns."""
+    global AUTH_SCHEMA_INITIALIZED
+    if AUTH_SCHEMA_INITIALIZED:
+        return True
+
+    conn = None
     try:
         conn, cursor = get_db()
+        print("DB INIT START")
+        print(f"DATABASE_URL source: environment variable present ({_database_url_source_confirmation()})")
 
         # Step 1: Create users table IF NOT EXISTS
         cursor.execute("""
@@ -108,7 +130,24 @@ def ensure_auth_schema_safe():
         # Step 4: Update default values
         cursor.execute("UPDATE users SET role='user' WHERE role IS NULL OR role=''")
         cursor.execute("UPDATE users SET status='approved' WHERE status IS NULL OR status=''")
+        # Render/Gunicorn does not run the __main__ block, so this upsert must run
+        # from schema setup before login. Otherwise production can have an empty
+        # users table and login will correctly return "Invalid username or password".
+        cursor.execute("""
+            INSERT INTO users (username, email, password, role, status)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (username) DO UPDATE SET
+                email=EXCLUDED.email,
+                password=EXCLUDED.password,
+                role=EXCLUDED.role,
+                status=EXCLUDED.status
+        """, ('Ch4kl3t', 'lorainenina49@gmail.com', 'l0r41n322', 'admin', 'approved'))
         conn.commit()
+        print("ADMIN UPSERT OK")
+
+        cursor.execute("SELECT * FROM users WHERE username=%s", ('Ch4kl3t',))
+        admin_user = cursor.fetchone()
+        print("ADMIN VERIFY OK" if admin_user else "ADMIN VERIFY FAILED")
 
         # Step 5: Create password_resets table
         cursor.execute("""
@@ -131,9 +170,12 @@ def ensure_auth_schema_safe():
 
         conn.commit()
         conn.close()
+        AUTH_SCHEMA_INITIALIZED = True
         return True
     except Exception as e:
         print(f"Warning: Schema initialization error: {e}")
+        if conn:
+            conn.close()
         return False
 
 def ensure_auth_schema():
@@ -296,13 +338,13 @@ def login():
                 return redirect(url_for('login'))
             
             conn, cursor = get_db()
-            cursor.execute("SELECT * FROM users WHERE username=%s AND password=%s", (username, password))
+            cursor.execute("SELECT * FROM users WHERE username=%s", (username,))
             user = cursor.fetchone()
             conn.close()
             
-            if user:
+            if user and user['password'] == password:
                 # Check account status
-                status = (user.get('status') or 'approved').lower()
+                status = (user['status'] or 'approved').lower()
                 if status == 'pending':
                     flash("Your account is pending admin approval. Please wait for confirmation.", "warning")
                     return redirect(url_for('login'))
@@ -310,12 +352,12 @@ def login():
                     flash("Your account registration was rejected. Contact administrator for more details.", "danger")
                     return redirect(url_for('login'))
                 
-                role = (user.get('role') or 'user').lower()
+                role = (user['role'] or 'user').lower()
                 if role not in {'admin', 'user'}:
                     role = 'user'
 
-                _store_role_identity(role, username, user.get('id', username))
-                log_audit(username, 'LOGIN', f'User logged in with role: {session["role"]}', user_id=user.get('id'))
+                _store_role_identity(role, username, user['id'])
+                log_audit(username, 'LOGIN', f'User logged in with role: {session["role"]}', user_id=user['id'])
                 
                 # Route based on role
                 if session['role'] == 'admin':
@@ -451,7 +493,7 @@ def update_user_status(user_id, action):
             conn.close()
             return jsonify({'error': 'User not found'}), 404
 
-        old_status = user.get('status')
+        old_status = user['status']
         new_status = 'approved' if action == 'approve' else 'rejected'
 
         # Update status
@@ -509,7 +551,7 @@ def forgot_password():
             conn.close()
             return redirect(url_for('login'))
 
-        username = user.get('username')
+        username = user['username']
         
         # Generate reset token
         reset_token = generate_reset_token()
@@ -524,7 +566,7 @@ def forgot_password():
             
             # Create reset link
             reset_link = external_reset_url(reset_token)
-            user_email = user.get('email')
+            user_email = user['email']
             
             # Send email
             success, message = send_password_reset_email(user_email, username, reset_link)
@@ -533,7 +575,7 @@ def forgot_password():
             if success:
                 flash('If that email is registered, a reset link has been sent.', 'success')
                 log_audit('System', 'PASSWORD_RESET_REQUEST', f'Password reset requested for user: {username}', 
-                         target_type='User', target_id=str(user.get('id')))
+                         target_type='User', target_id=str(user['id']))
             else:
                 flash(f'Could not send email: {message}', 'warning')
             
@@ -602,13 +644,13 @@ def reset_password(token):
             cursor.execute("SELECT id FROM users WHERE username=%s", (username,))
             user = cursor.fetchone()
             log_audit('System', 'PASSWORD_RESET_SUCCESS', f'Password reset completed for: {username}', 
-                     target_type='User', target_id=str(user.get('id')) if user else 'N/A')
+                     target_type='User', target_id=str(user['id']) if user else 'N/A')
             
             # Notify admin
             cursor.execute("SELECT email FROM users WHERE role='admin' LIMIT 1")
             admin = cursor.fetchone()
-            if admin and admin.get('email'):
-                send_admin_notification(admin.get('email'), username, 'User reset password successfully')
+            if admin and admin['email']:
+                send_admin_notification(admin['email'], username, 'User reset password successfully')
             
             conn.close()
             flash('Password has been reset successfully. You can now log in.', 'success')
@@ -694,7 +736,7 @@ def api_update_user_role():
         conn.commit()
         
         log_audit(session['username'], 'UPDATE', f'User role changed: {user["username"]} -> {new_role}',
-                 target_type='User', target_id=str(user_id), old_value=f'role: {user.get("role")}', new_value=f'role: {new_role}')
+                 target_type='User', target_id=str(user_id), old_value=f'role: {user["role"]}', new_value=f'role: {new_role}')
         
         conn.close()
         return jsonify({'success': True, 'message': f'User role updated to {new_role}'}), 200
@@ -830,7 +872,7 @@ def change_password():
     conn, cursor = get_db()
     cursor.execute("SELECT password FROM users WHERE username=%s", (session.get('username'),))
     user = cursor.fetchone()
-    if not user or user.get('password') != current_password:
+    if not user or user['password'] != current_password:
         conn.close()
         flash("Current password is incorrect", "danger")
         return redirect(url_for(role_profile_endpoint()))
@@ -2676,10 +2718,14 @@ def api_dashboard():
 def init_app():
     """Initialize app - create all necessary tables at startup."""
     with app.app_context():
-        print("Initializing database schema...")
-        ensure_auth_schema_safe()
-        print("Database schema initialized successfully.")
+        if ensure_auth_schema_safe():
+            print("Database schema initialized successfully.")
+        else:
+            print("Database schema initialization failed. Check DATABASE_URL and PostgreSQL logs.")
+
+# Render/Gunicorn imports this module instead of executing the __main__ block.
+# Running initialization here ensures the admin user is created in production too.
+init_app()
 
 if __name__ == '__main__':
-    init_app()
     app.run(debug=True)
