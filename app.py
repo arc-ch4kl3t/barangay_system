@@ -149,7 +149,95 @@ def ensure_auth_schema_safe():
         admin_user = cursor.fetchone()
         print("ADMIN VERIFY OK" if admin_user else "ADMIN VERIFY FAILED")
 
-        # Step 5: Create password_resets table
+        # Step 5: Create application tables used by home/dashboard routes.
+        # Production crashed because Render started with a fresh PostgreSQL DB
+        # where the household table did not exist before dashboard queries ran.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS households (
+                id SERIAL PRIMARY KEY,
+                surname VARCHAR(255) NOT NULL,
+                house_number VARCHAR(100),
+                address TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS household (
+                id SERIAL PRIMARY KEY,
+                firstname VARCHAR(255),
+                middlename VARCHAR(255),
+                surname VARCHAR(255),
+                age VARCHAR(20),
+                birthdate VARCHAR(50),
+                gender VARCHAR(50),
+                civil_status VARCHAR(100),
+                occupation VARCHAR(255),
+                household_id INTEGER,
+                status VARCHAR(50) DEFAULT 'Active',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(100),
+                username VARCHAR(255),
+                action_type VARCHAR(100),
+                target_type VARCHAR(100) DEFAULT 'System',
+                target_id VARCHAR(100) DEFAULT 'N/A',
+                old_value TEXT,
+                new_value TEXT,
+                details TEXT,
+                household_context TEXT DEFAULT 'N/A',
+                status VARCHAR(30) DEFAULT 'SUCCESS',
+                ip_address VARCHAR(80),
+                user_agent VARCHAR(255),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        app_tables = {
+            'households': {
+                'surname': 'VARCHAR(255)',
+                'house_number': 'VARCHAR(100)',
+                'address': 'TEXT',
+                'created_at': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
+            },
+            'household': {
+                'firstname': 'VARCHAR(255)',
+                'middlename': 'VARCHAR(255)',
+                'surname': 'VARCHAR(255)',
+                'age': 'VARCHAR(20)',
+                'birthdate': 'VARCHAR(50)',
+                'gender': 'VARCHAR(50)',
+                'civil_status': 'VARCHAR(100)',
+                'occupation': 'VARCHAR(255)',
+                'household_id': 'INTEGER',
+                'status': "VARCHAR(50) DEFAULT 'Active'",
+                'created_at': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
+            }
+        }
+
+        for table_name, required_columns in app_tables.items():
+            cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name=%s
+            """, (table_name,))
+            table_columns = {row['column_name'] for row in cursor.fetchall()}
+            for column, definition in required_columns.items():
+                if column not in table_columns:
+                    cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column} {definition}")
+
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_household_household_id ON household (household_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_household_status ON household (status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_households_surname ON households (surname)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs (created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_target ON audit_logs (target_type, target_id)")
+        conn.commit()
+
+        # Step 6: Create password_resets table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS password_resets (
                 id SERIAL PRIMARY KEY,
@@ -258,6 +346,25 @@ def external_reset_url(token):
 def ensure_audit_log_schema():
     """Keep the audit log table compatible with the richer audit trail UI."""
     conn, cursor = get_db()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(100),
+            username VARCHAR(255),
+            action_type VARCHAR(100),
+            target_type VARCHAR(100) DEFAULT 'System',
+            target_id VARCHAR(100) DEFAULT 'N/A',
+            old_value TEXT,
+            new_value TEXT,
+            details TEXT,
+            household_context TEXT DEFAULT 'N/A',
+            status VARCHAR(30) DEFAULT 'SUCCESS',
+            ip_address VARCHAR(80),
+            user_agent VARCHAR(255),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
     try:
         cursor.execute("""
             SELECT column_name FROM information_schema.columns 
