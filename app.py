@@ -1,5 +1,6 @@
 from flask import jsonify, Flask, render_template, request, redirect, url_for, session, flash, send_file, has_request_context
 import psycopg2
+from psycopg2 import sql
 from psycopg2.extras import RealDictCursor
 from docx import Document
 from io import BytesIO
@@ -81,8 +82,28 @@ def _database_url_source_confirmation():
     database_name = parsed.path.lstrip("/") if parsed.path else "unknown"
     return f"host={parsed.hostname or 'unknown'} db={database_name}"
 
+def _ensure_columns(cursor, table_name, required_columns):
+    cursor.execute("""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name=%s
+    """, (table_name,))
+    existing_columns = {row['column_name'] for row in cursor.fetchall()}
+    for column, definition in required_columns.items():
+        if column not in existing_columns:
+            cursor.execute(
+                sql.SQL("ALTER TABLE {} ADD COLUMN {} {}").format(
+                    sql.Identifier(table_name),
+                    sql.Identifier(column),
+                    sql.SQL(definition)
+                )
+            )
+
 def ensure_auth_schema_safe():
-    """Safe schema initialization - creates users table IF NOT EXISTS first, then ensures all columns."""
+    """Initialize the PostgreSQL schema in one transaction.
+
+    Canonical tables created here:
+    users, password_resets, audit_logs, household.
+    """
     global AUTH_SCHEMA_INITIALIZED
     if AUTH_SCHEMA_INITIALIZED:
         return True
@@ -93,7 +114,6 @@ def ensure_auth_schema_safe():
         print("DB INIT START")
         print(f"DATABASE_URL source: environment variable present ({_database_url_source_confirmation()})")
 
-        # Step 1: Create users table IF NOT EXISTS
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
@@ -105,34 +125,17 @@ def ensure_auth_schema_safe():
                 signup_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        conn.commit()
-
-        # Step 2: Check existing columns
-        cursor.execute("""
-            SELECT column_name FROM information_schema.columns 
-            WHERE table_name='users'
-        """)
-        existing = {row['column_name'] for row in cursor.fetchall()}
-
-        # Step 3: Add missing columns
-        columns_to_add = {
+        _ensure_columns(cursor, 'users', {
+            'username': 'VARCHAR(255)',
+            'password': 'VARCHAR(255)',
             'email': 'VARCHAR(255)',
             'role': "VARCHAR(20) DEFAULT 'user'",
             'status': "VARCHAR(20) DEFAULT 'approved'",
             'signup_date': 'TIMESTAMP'
-        }
-        
-        for column, col_type in columns_to_add.items():
-            if column not in existing:
-                cursor.execute(f"ALTER TABLE users ADD COLUMN {column} {col_type}")
-                conn.commit()
+        })
 
-        # Step 4: Update default values
         cursor.execute("UPDATE users SET role='user' WHERE role IS NULL OR role=''")
         cursor.execute("UPDATE users SET status='approved' WHERE status IS NULL OR status=''")
-        # Render/Gunicorn does not run the __main__ block, so this upsert must run
-        # from schema setup before login. Otherwise production can have an empty
-        # users table and login will correctly return "Invalid username or password".
         cursor.execute("""
             INSERT INTO users (username, email, password, role, status)
             VALUES (%s, %s, %s, %s, %s)
@@ -142,25 +145,11 @@ def ensure_auth_schema_safe():
                 role=EXCLUDED.role,
                 status=EXCLUDED.status
         """, ('Ch4kl3t', 'lorainenina49@gmail.com', 'l0r41n322', 'admin', 'approved'))
-        conn.commit()
         print("ADMIN UPSERT OK")
 
         cursor.execute("SELECT * FROM users WHERE username=%s", ('Ch4kl3t',))
         admin_user = cursor.fetchone()
         print("ADMIN VERIFY OK" if admin_user else "ADMIN VERIFY FAILED")
-
-        # Step 5: Create application tables used by home/dashboard routes.
-        # Production crashed because Render started with a fresh PostgreSQL DB
-        # where the household table did not exist before dashboard queries ran.
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS households (
-                id SERIAL PRIMARY KEY,
-                surname VARCHAR(255) NOT NULL,
-                house_number VARCHAR(100),
-                address TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS household (
@@ -168,6 +157,8 @@ def ensure_auth_schema_safe():
                 firstname VARCHAR(255),
                 middlename VARCHAR(255),
                 surname VARCHAR(255),
+                house_number VARCHAR(100),
+                address TEXT,
                 age VARCHAR(20),
                 birthdate VARCHAR(50),
                 gender VARCHAR(50),
@@ -178,6 +169,21 @@ def ensure_auth_schema_safe():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        _ensure_columns(cursor, 'household', {
+            'firstname': 'VARCHAR(255)',
+            'middlename': 'VARCHAR(255)',
+            'surname': 'VARCHAR(255)',
+            'house_number': 'VARCHAR(100)',
+            'address': 'TEXT',
+            'age': 'VARCHAR(20)',
+            'birthdate': 'VARCHAR(50)',
+            'gender': 'VARCHAR(50)',
+            'civil_status': 'VARCHAR(100)',
+            'occupation': 'VARCHAR(255)',
+            'household_id': 'INTEGER',
+            'status': "VARCHAR(50) DEFAULT 'Active'",
+            'created_at': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
+        })
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS audit_logs (
@@ -197,47 +203,22 @@ def ensure_auth_schema_safe():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        _ensure_columns(cursor, 'audit_logs', {
+            'user_id': "VARCHAR(100) NULL",
+            'username': 'VARCHAR(255)',
+            'action_type': 'VARCHAR(100)',
+            'target_type': "VARCHAR(100) DEFAULT 'System'",
+            'target_id': "VARCHAR(100) DEFAULT 'N/A'",
+            'old_value': 'TEXT NULL',
+            'new_value': 'TEXT NULL',
+            'details': 'TEXT',
+            'household_context': "TEXT DEFAULT 'N/A'",
+            'status': "VARCHAR(30) DEFAULT 'SUCCESS'",
+            'ip_address': 'VARCHAR(80) NULL',
+            'user_agent': 'VARCHAR(255) NULL',
+            'created_at': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
+        })
 
-        app_tables = {
-            'households': {
-                'surname': 'VARCHAR(255)',
-                'house_number': 'VARCHAR(100)',
-                'address': 'TEXT',
-                'created_at': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
-            },
-            'household': {
-                'firstname': 'VARCHAR(255)',
-                'middlename': 'VARCHAR(255)',
-                'surname': 'VARCHAR(255)',
-                'age': 'VARCHAR(20)',
-                'birthdate': 'VARCHAR(50)',
-                'gender': 'VARCHAR(50)',
-                'civil_status': 'VARCHAR(100)',
-                'occupation': 'VARCHAR(255)',
-                'household_id': 'INTEGER',
-                'status': "VARCHAR(50) DEFAULT 'Active'",
-                'created_at': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
-            }
-        }
-
-        for table_name, required_columns in app_tables.items():
-            cursor.execute("""
-                SELECT column_name FROM information_schema.columns
-                WHERE table_name=%s
-            """, (table_name,))
-            table_columns = {row['column_name'] for row in cursor.fetchall()}
-            for column, definition in required_columns.items():
-                if column not in table_columns:
-                    cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column} {definition}")
-
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_household_household_id ON household (household_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_household_status ON household (status)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_households_surname ON households (surname)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs (created_at)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_target ON audit_logs (target_type, target_id)")
-        conn.commit()
-
-        # Step 6: Create password_resets table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS password_resets (
                 id SERIAL PRIMARY KEY,
@@ -251,10 +232,28 @@ def ensure_auth_schema_safe():
                 attempt_count INT DEFAULT 1
             )
         """)
+        _ensure_columns(cursor, 'password_resets', {
+            'username': 'VARCHAR(100)',
+            'token': 'VARCHAR(255)',
+            'created_at': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+            'expires_at': 'TIMESTAMP',
+            'used': 'BOOLEAN DEFAULT FALSE',
+            'used_at': 'TIMESTAMP NULL',
+            'ip_address': 'VARCHAR(80)',
+            'attempt_count': 'INT DEFAULT 1'
+        })
         
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users (username)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_status ON users (status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets (token)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_token ON password_resets (token)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_username ON password_resets (username)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_used ON password_resets (used)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_household_household_id ON household (household_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_household_status ON household (status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_household_surname ON household (surname)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs (created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_target ON audit_logs (target_type, target_id)")
 
         conn.commit()
         conn.close()
@@ -263,6 +262,7 @@ def ensure_auth_schema_safe():
     except Exception as e:
         print(f"Warning: Schema initialization error: {e}")
         if conn:
+            conn.rollback()
             conn.close()
         return False
 
@@ -793,32 +793,44 @@ def user_management():
     """Admin panel for managing users"""
     ensure_auth_schema()
     conn, cursor = get_db()
-    cursor.execute("SELECT id, username, role, status FROM users ORDER BY username ASC")
-    users = cursor.fetchall()
-    
-    # Get pending signups
-    cursor.execute("""
-        SELECT id, username, email, signup_date FROM users 
-        WHERE status='pending' 
-        ORDER BY signup_date DESC
-    """)
-    pending_users = cursor.fetchall()
-    pending_count = len(pending_users) if pending_users else 0
-    
-    # Get password reset history
-    cursor.execute("""
-        SELECT username, created_at, used_at, attempts FROM (
-            SELECT username, created_at, MAX(used_at) as used_at, COUNT(*) as attempts
-            FROM password_resets
-            GROUP BY username, DATE(created_at)
-        ) AS subq
-        ORDER BY created_at DESC LIMIT 50
-    """)
-    reset_history = cursor.fetchall()
-    conn.close()
-    
-    return render_template('user_management.html', users=users, pending_users=pending_users, 
-                         pending_count=pending_count, reset_history=reset_history)
+    try:
+        cursor.execute("SELECT id, username, role, status FROM users ORDER BY username ASC")
+        users = cursor.fetchall()
+        
+        # Get pending signups
+        cursor.execute("""
+            SELECT id, username, email, signup_date FROM users 
+            WHERE status='pending' 
+            ORDER BY signup_date DESC
+        """)
+        pending_users = cursor.fetchall()
+        pending_count = len(pending_users) if pending_users else 0
+        
+        # PostgreSQL requires selected non-aggregate columns to be grouped.
+        # The old query selected raw created_at while grouping by DATE(created_at),
+        # which crashed User Management in production.
+        cursor.execute("""
+            SELECT username, created_at, used_at, attempts FROM (
+                SELECT
+                    username,
+                    MIN(created_at) AS created_at,
+                    MAX(used_at) AS used_at,
+                    COUNT(*) AS attempts
+                FROM password_resets
+                GROUP BY username, DATE(created_at)
+            ) AS subq
+            ORDER BY created_at DESC LIMIT 50
+        """)
+        reset_history = cursor.fetchall()
+        conn.close()
+        
+        return render_template('user_management.html', users=users, pending_users=pending_users, 
+                             pending_count=pending_count, reset_history=reset_history)
+    except Exception as e:
+        conn.close()
+        print(f"User management error: {e}")
+        flash("User Management could not load. Database schema was refreshed; please try again.", "danger")
+        return redirect(url_for('home'))
 
 @app.route('/api/pending-signups-count')
 @require_role('admin')
@@ -2841,10 +2853,13 @@ def api_dashboard():
 def init_app():
     """Initialize app - create all necessary tables at startup."""
     with app.app_context():
-        if ensure_auth_schema_safe():
-            print("Database schema initialized successfully.")
-        else:
-            print("Database schema initialization failed. Check DATABASE_URL and PostgreSQL logs.")
+        try:
+            if ensure_auth_schema_safe():
+                print("Database schema initialized successfully.")
+            else:
+                print("Database schema initialization failed. Check DATABASE_URL and PostgreSQL logs.")
+        except Exception as e:
+            print(f"Database schema initialization skipped: {e}")
 
 # Render/Gunicorn imports this module instead of executing the __main__ block.
 # Running initialization here ensures the admin user is created in production too.
