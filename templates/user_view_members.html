@@ -503,6 +503,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }[char]));
 
     let lastSuggestions = [];
+    let searchRequestSeq = 0;
 
     function filterTable(value, exactMatch = false) {
         const query = value.toLowerCase().trim();
@@ -550,6 +551,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     searchInput.addEventListener('input', async (e) => {
         const query = e.target.value.trim();
+        const requestSeq = ++searchRequestSeq;
         if (!query) {
             lastSuggestions = [];
             suggestionsPanel.style.display = 'none';
@@ -560,6 +562,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch(`/search_members?q=${encodeURIComponent(query)}`);
             const results = await response.json();
+            if (requestSeq !== searchRequestSeq) return;
             lastSuggestions = results;
             renderSuggestions(results, query);
         } catch (error) {

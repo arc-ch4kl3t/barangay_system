@@ -179,6 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!searchBox) return;
 
     let lastSuggestions = [];
+    let searchRequestSeq = 0;
 
     function filterTable(searchTerm, exactMatch = false) {
         const query = searchTerm.toLowerCase().trim();
@@ -197,11 +198,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     searchBox.addEventListener('input', function() {
         const query = this.value.toLowerCase().trim();
+        const requestSeq = ++searchRequestSeq;
 
         if (query.length > 0) {
             fetch(`/search_households?q=${encodeURIComponent(query)}`)
                 .then(response => response.json())
                 .then(data => {
+                    if (requestSeq !== searchRequestSeq) return;
                     lastSuggestions = data;
                     suggestions.innerHTML = '';
                     if (data.length > 0) {

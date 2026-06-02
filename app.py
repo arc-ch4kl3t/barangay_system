@@ -98,6 +98,12 @@ def _ensure_columns(cursor, table_name, required_columns):
                 )
             )
 
+def _month_filter_sql(column_name):
+    return f"EXTRACT(MONTH FROM {column_name}) = %s"
+
+def _current_year_filter_sql(column_name):
+    return f"EXTRACT(YEAR FROM {column_name}) = EXTRACT(YEAR FROM CURRENT_DATE)"
+
 def ensure_auth_schema_safe():
     """Initialize the PostgreSQL schema in one transaction.
 
@@ -186,6 +192,22 @@ def ensure_auth_schema_safe():
         })
 
         cursor.execute("""
+            CREATE TABLE IF NOT EXISTS households (
+                id SERIAL PRIMARY KEY,
+                surname VARCHAR(255),
+                house_number VARCHAR(100),
+                address TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        _ensure_columns(cursor, 'households', {
+            'surname': 'VARCHAR(255)',
+            'house_number': 'VARCHAR(100)',
+            'address': 'TEXT',
+            'created_at': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
+        })
+
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS audit_logs (
                 id SERIAL PRIMARY KEY,
                 user_id VARCHAR(100),
@@ -252,6 +274,11 @@ def ensure_auth_schema_safe():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_household_household_id ON household (household_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_household_status ON household (status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_household_surname ON household (surname)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_household_gender ON household (gender)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_household_created_at ON household (created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_households_surname ON households (surname)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_households_house_number ON households (house_number)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_households_created_at ON households (created_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs (created_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_target ON audit_logs (target_type, target_id)")
 
@@ -602,18 +629,19 @@ def signup():
 @require_role('admin')
 def update_user_status(user_id, action):
     """Admin approve/reject pending signups"""
-    ensure_auth_schema()
-    if action not in ['approve', 'reject']:
-        return jsonify({'error': 'Invalid action'}), 400
-
-    conn, cursor = get_db()
+    conn = None
     try:
+        ensure_auth_schema()
+        if action not in ['approve', 'reject']:
+            return jsonify({'error': 'Invalid action'}), 400
+
+        conn, cursor = get_db()
+        
         # Get user details
         cursor.execute("SELECT id, username, email, status FROM users WHERE id=%s", (user_id,))
         user = cursor.fetchone()
         
         if not user:
-            conn.close()
             return jsonify({'error': 'User not found'}), 404
 
         old_status = user['status']
@@ -638,7 +666,6 @@ def update_user_status(user_id, action):
             new_value={'status': new_status}
         )
 
-        conn.close()
         return jsonify({
             'success': True,
             'message': f'User {action}ed successfully',
@@ -646,8 +673,11 @@ def update_user_status(user_id, action):
         }), 200
 
     except Exception as e:
-        conn.close()
+        print(f"[ERROR] /api/user/status error: {e}")
         return jsonify({'error': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/forgot-password', methods=['GET', 'POST'])
 def forgot_password():
@@ -836,28 +866,36 @@ def user_management():
 @require_role('admin')
 def api_pending_signups_count():
     """API endpoint to get count of pending signups (admin only)"""
-    ensure_auth_schema()
-    conn, cursor = get_db()
-    cursor.execute("SELECT COUNT(*) as count FROM users WHERE status='pending'")
-    result = cursor.fetchone()
-    conn.close()
-    
-    return jsonify({'count': result.get('count', 0) if result else 0}), 200
+    conn = None
+    try:
+        ensure_auth_schema()
+        conn, cursor = get_db()
+        cursor.execute("SELECT COUNT(*) as count FROM users WHERE status='pending'")
+        result = cursor.fetchone()
+        
+        return jsonify({'count': result.get('count', 0) if result else 0}), 200
+    except Exception as e:
+        print(f"[ERROR] /api/pending-signups-count error: {e}")
+        return jsonify({'count': 0, 'error': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/user/role', methods=['POST'])
 @require_role('admin')
 def api_update_user_role():
     """API endpoint to update user role (admin only)"""
-    ensure_auth_schema()
-    data = request.get_json()
-    user_id = data.get('user_id')
-    new_role = data.get('role')
-    
-    if new_role not in {'admin', 'user'}:
-        return jsonify({'error': 'Invalid role'}), 400
-    
-    conn, cursor = get_db()
+    conn = None
     try:
+        ensure_auth_schema()
+        data = request.get_json()
+        user_id = data.get('user_id')
+        new_role = data.get('role')
+        
+        if new_role not in {'admin', 'user'}:
+            return jsonify({'error': 'Invalid role'}), 400
+        
+        conn, cursor = get_db()
         cursor.execute("SELECT username, role FROM users WHERE id=%s", (user_id,))
         user = cursor.fetchone()
         
@@ -873,12 +911,14 @@ def api_update_user_role():
         log_audit(session.get('username', 'admin'), 'UPDATE', f'User role changed: {user["username"]} -> {new_role}',
                  target_type='User', target_id=str(user_id), old_value=f'role: {user["role"]}', new_value=f'role: {new_role}')
         
-        conn.close()
         return jsonify({'success': True, 'message': f'User role updated to {new_role}'}), 200
     
     except Exception as e:
-        conn.close()
+        print(f"[ERROR] /api/user/role error: {e}")
         return jsonify({'error': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/register-user', methods=['GET', 'POST'])
 @require_role('admin')
@@ -1029,16 +1069,23 @@ def user_home():
         return redirect(url_for('login'))
     
     conn, cursor = get_db()
-    cursor.execute("SELECT COUNT(*) AS total FROM household WHERE COALESCE(status, 'Active') != 'Deceased'")
-    total_residents = cursor.fetchone()['total']
-    cursor.execute("SELECT COUNT(*) AS total FROM household WHERE COALESCE(status, 'Active') = 'Deceased'")
-    total_deceased = cursor.fetchone()['total']
+    print("[DEBUG][statistics] Loading user dashboard totals from household and households tables")
+    cursor.execute("""
+        SELECT
+            COUNT(*) FILTER (WHERE COALESCE(status, 'Active') != 'Deceased') AS total_residents,
+            COUNT(*) FILTER (WHERE COALESCE(status, 'Active') = 'Deceased') AS total_deceased,
+            COUNT(*) FILTER (WHERE gender = 'Male' AND COALESCE(status, 'Active') != 'Deceased') AS total_males,
+            COUNT(*) FILTER (WHERE gender = 'Female' AND COALESCE(status, 'Active') != 'Deceased') AS total_females
+        FROM household
+    """)
+    resident_totals = cursor.fetchone()
+    total_residents = resident_totals['total_residents']
+    total_deceased = resident_totals['total_deceased']
+    total_males = resident_totals['total_males']
+    total_females = resident_totals['total_females']
     cursor.execute("SELECT COUNT(*) AS total FROM households")
     total_households = cursor.fetchone()['total']
-    cursor.execute("SELECT COUNT(*) AS total FROM household WHERE gender='Male' AND COALESCE(status, 'Active') != 'Deceased'")
-    total_males = cursor.fetchone()['total']
-    cursor.execute("SELECT COUNT(*) AS total FROM household WHERE gender='Female' AND COALESCE(status, 'Active') != 'Deceased'")
-    total_females = cursor.fetchone()['total']
+    print(f"[DEBUG][statistics] user totals residents={total_residents} deceased={total_deceased} households={total_households} male={total_males} female={total_females}")
     conn.close()
     
     return render_template(
@@ -1067,8 +1114,15 @@ def user_view_members():
     """
     params = []
     if search_query:
-        sql += " WHERE (h.firstname LIKE %s OR h.middlename LIKE %s OR h.surname LIKE %s OR hh.surname LIKE %s)"
-        params = [f"%{search_query}%"] * 4
+        sql += """
+            WHERE (
+                h.firstname ILIKE %s OR h.middlename ILIKE %s OR h.surname ILIKE %s
+                OR CONCAT_WS(' ', h.firstname, h.middlename, h.surname) ILIKE %s
+                OR CONCAT_WS(', ', h.surname, h.firstname) ILIKE %s
+                OR hh.surname ILIKE %s
+            )
+        """
+        params = [f"%{search_query}%"] * 6
     sql += " ORDER BY h.surname ASC"
     cursor.execute(sql, params)
     members = cursor.fetchall()
@@ -1101,8 +1155,8 @@ def user_view_households():
     """
     params = []
     if search_query:
-        sql += " WHERE hh.surname LIKE %s OR hh.house_number LIKE %s"
-        params = [f"%{search_query}%", f"%{search_query}%"]
+        sql += " WHERE hh.surname ILIKE %s OR hh.house_number ILIKE %s OR hh.address ILIKE %s"
+        params = [f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"]
     
     sql += " GROUP BY hh.id ORDER BY hh.id DESC"
     cursor.execute(sql, params)
@@ -1201,16 +1255,23 @@ def home():
         return redirect(url_for('login'))
     
     conn, cursor = get_db()
-    cursor.execute("SELECT COUNT(*) AS total FROM household WHERE COALESCE(status, 'Active') != 'Deceased'")
-    total_residents = cursor.fetchone()['total']
-    cursor.execute("SELECT COUNT(*) AS total FROM household WHERE COALESCE(status, 'Active') = 'Deceased'")
-    total_deceased = cursor.fetchone()['total']
+    print("[DEBUG][statistics] Loading home dashboard totals from household and households tables")
+    cursor.execute("""
+        SELECT
+            COUNT(*) FILTER (WHERE COALESCE(status, 'Active') != 'Deceased') AS total_residents,
+            COUNT(*) FILTER (WHERE COALESCE(status, 'Active') = 'Deceased') AS total_deceased,
+            COUNT(*) FILTER (WHERE gender = 'Male' AND COALESCE(status, 'Active') != 'Deceased') AS total_males,
+            COUNT(*) FILTER (WHERE gender = 'Female' AND COALESCE(status, 'Active') != 'Deceased') AS total_females
+        FROM household
+    """)
+    resident_totals = cursor.fetchone()
+    total_residents = resident_totals['total_residents']
+    total_deceased = resident_totals['total_deceased']
+    total_males = resident_totals['total_males']
+    total_females = resident_totals['total_females']
     cursor.execute("SELECT COUNT(*) AS total FROM households")
     total_households = cursor.fetchone()['total']
-    cursor.execute("SELECT COUNT(*) AS total FROM household WHERE gender='Male' AND COALESCE(status, 'Active') != 'Deceased'")
-    total_males = cursor.fetchone()['total']
-    cursor.execute("SELECT COUNT(*) AS total FROM household WHERE gender='Female' AND COALESCE(status, 'Active') != 'Deceased'")
-    total_females = cursor.fetchone()['total']
+    print(f"[DEBUG][statistics] totals residents={total_residents} deceased={total_deceased} households={total_households} male={total_males} female={total_females}")
     conn.close()
     
     return render_template(
@@ -1236,8 +1297,15 @@ def view_members():
     """
     params = []
     if search_query:
-        sql += " WHERE (h.firstname LIKE %s OR h.middlename LIKE %s OR h.surname LIKE %s OR hh.surname LIKE %s)"
-        params = [f"%{search_query}%"] * 4
+        sql += """
+            WHERE (
+                h.firstname ILIKE %s OR h.middlename ILIKE %s OR h.surname ILIKE %s
+                OR CONCAT_WS(' ', h.firstname, h.middlename, h.surname) ILIKE %s
+                OR CONCAT_WS(', ', h.surname, h.firstname) ILIKE %s
+                OR hh.surname ILIKE %s
+            )
+        """
+        params = [f"%{search_query}%"] * 6
     sql += " ORDER BY h.surname ASC"
     cursor.execute(sql, params)
     members = cursor.fetchall()
@@ -1266,8 +1334,8 @@ def view_households():
 
     # Filter by surname or house number if a search query exists
     if search_query:
-        sql += " WHERE hh.surname LIKE %s OR hh.house_number LIKE %s"
-        params = [f"%{search_query}%", f"%{search_query}%"]
+        sql += " WHERE hh.surname ILIKE %s OR hh.house_number ILIKE %s OR hh.address ILIKE %s"
+        params = [f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"]
 
     sql += " GROUP BY hh.id ORDER BY hh.id DESC"
     
@@ -1299,27 +1367,40 @@ def search_households():
     q = request.args.get("q", "").strip()
     if not q: return jsonify([])
     
-    conn, cursor = get_db()
-    # Updated query to join and get member counts for the suggestion dropdown
-    query = """
-        SELECT hh.id, hh.surname, hh.house_number, COUNT(h.id) as count
-        FROM households hh
-        LEFT JOIN household h ON hh.id = h.household_id
-        WHERE hh.surname LIKE %s OR CAST(hh.id AS TEXT) LIKE %s OR hh.house_number LIKE %s
-        GROUP BY hh.id
-        LIMIT 10
-    """
-    cursor.execute(query, (f"%{q}%", f"%{q}%", f"%{q}%"))
-    res = cursor.fetchall()
-    conn.close()
+    conn = None
+    try:
+        conn, cursor = get_db()
+        print(f"[DEBUG][search] /search_households q={q!r}")
+        # Updated query to join and get member counts for the suggestion dropdown
+        query = """
+            SELECT hh.id, hh.surname, hh.house_number, COUNT(h.id) as count
+            FROM households hh
+            LEFT JOIN household h ON hh.id = h.household_id
+            WHERE hh.surname ILIKE %s
+               OR CAST(hh.id AS TEXT) ILIKE %s
+               OR hh.house_number ILIKE %s
+               OR hh.address ILIKE %s
+               OR CONCAT_WS(' ', hh.surname, hh.house_number, hh.address) ILIKE %s
+            GROUP BY hh.id
+            ORDER BY hh.surname ASC
+            LIMIT 10
+        """
+        cursor.execute(query, (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"))
+        res = cursor.fetchall()
 
-    return jsonify([{
-        "id": r['id'], 
-        "name": r['surname'], 
-        "house_number": r['house_number'],
-        "subtext": f"House No: {r['house_number'] or 'N/A'} | Family Members: {r['count']}",
-        "type": "household"
-    } for r in res])
+        return jsonify([{
+            "id": r['id'], 
+            "name": r['surname'], 
+            "house_number": r['house_number'],
+            "subtext": f"House No: {r['house_number'] or 'N/A'} | Family Members: {r['count']}",
+            "type": "household"
+        } for r in res])
+    except Exception as e:
+        print(f"[ERROR][search] /search_households error: {e}")
+        return jsonify([]), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/search_members')
 @require_role('admin', 'user')
@@ -1327,29 +1408,43 @@ def search_members():
     q = request.args.get("q", "").strip()
     if not q: return jsonify([])
     
-    conn, cursor = get_db()
-    # This query pulls the surname from the 'households' table
-    query = """
-        SELECT h.id, h.firstname, h.surname, hh.surname as hh_name
-        FROM household h
-        LEFT JOIN households hh ON h.household_id = hh.id
-        WHERE h.firstname LIKE %s OR h.surname LIKE %s
-        LIMIT 10
-    """
-    cursor.execute(query, (f"%{q}%", f"%{q}%"))
-    res = cursor.fetchall()
-    conn.close()
+    conn = None
+    try:
+        conn, cursor = get_db()
+        print(f"[DEBUG][search] /search_members q={q!r}")
+        # This query pulls the surname from the 'households' table
+        query = """
+            SELECT h.id, h.firstname, h.middlename, h.surname, h.occupation, hh.surname as hh_name
+            FROM household h
+            LEFT JOIN households hh ON h.household_id = hh.id
+            WHERE h.firstname ILIKE %s
+               OR h.middlename ILIKE %s
+               OR h.surname ILIKE %s
+               OR CONCAT_WS(' ', h.firstname, h.middlename, h.surname) ILIKE %s
+               OR CONCAT_WS(', ', h.surname, h.firstname) ILIKE %s
+               OR hh.surname ILIKE %s
+            ORDER BY h.surname ASC, h.firstname ASC
+            LIMIT 10
+        """
+        cursor.execute(query, (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"))
+        res = cursor.fetchall()
 
-    formatted_results = []
-    for row in res:
-        formatted_results.append({
-            "id": row['id'],
-            "name": f"{row['surname']}, {row['firstname']}",
-            "household_name": row['hh_name'], # <--- THIS IS THE FIX (Matches JS item.household_name)
-            "occupation": "Resident",         # Optional: add for better detail
-            "type": "resident"
-        })
-    return jsonify(formatted_results)
+        formatted_results = []
+        for row in res:
+            formatted_results.append({
+                "id": row['id'],
+                "name": f"{row['surname']}, {row['firstname']}",
+                "household_name": row['hh_name'],
+                "occupation": row.get('occupation') or "Resident",
+                "type": "resident"
+            })
+        return jsonify(formatted_results)
+    except Exception as e:
+        print(f"[ERROR][search] /search_members error: {e}")
+        return jsonify([]), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/search_residents')
 @require_role('admin', 'user')
@@ -1358,71 +1453,81 @@ def api_search_residents():
     if not q:
         return jsonify([])
 
-    conn, cursor = get_db()
-    cursor.execute("""
-        SELECT h.id, h.firstname, h.middlename, h.surname, h.gender, h.status,
-               hh.id AS household_id, hh.surname AS household_name, hh.house_number
-        FROM household h
-        LEFT JOIN households hh ON h.household_id = hh.id
-        WHERE h.firstname LIKE %s
-           OR h.middlename LIKE %s
-           OR h.surname LIKE %s
-           OR hh.surname LIKE %s
-        ORDER BY h.surname ASC
-        LIMIT 10
-    """, (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"))
-    residents = cursor.fetchall()
+    conn = None
+    try:
+        conn, cursor = get_db()
+        print(f"[DEBUG][search] /api/search_residents q={q!r}")
+        cursor.execute("""
+            SELECT h.id, h.firstname, h.middlename, h.surname, h.gender, h.status,
+                   hh.id AS household_id, hh.surname AS household_name, hh.house_number
+            FROM household h
+            LEFT JOIN households hh ON h.household_id = hh.id
+            WHERE h.firstname ILIKE %s
+               OR h.middlename ILIKE %s
+               OR h.surname ILIKE %s
+               OR CONCAT_WS(' ', h.firstname, h.middlename, h.surname) ILIKE %s
+               OR CONCAT_WS(', ', h.surname, h.firstname) ILIKE %s
+               OR hh.surname ILIKE %s
+            ORDER BY h.surname ASC
+            LIMIT 10
+        """, (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"))
+        residents = cursor.fetchall()
 
-    cursor.execute("""
-        SELECT hh.id, hh.surname, hh.house_number, COUNT(h.id) AS member_count
-        FROM households hh
-        LEFT JOIN household h ON hh.id = h.household_id
-        WHERE hh.surname LIKE %s OR hh.house_number LIKE %s
-        GROUP BY hh.id
-        ORDER BY hh.surname ASC
-        LIMIT 10
-    """, (f"%{q}%", f"%{q}%"))
-    households = cursor.fetchall()
-    conn.close()
+        cursor.execute("""
+            SELECT hh.id, hh.surname, hh.house_number, COUNT(h.id) AS member_count
+            FROM households hh
+            LEFT JOIN household h ON hh.id = h.household_id
+            WHERE hh.surname ILIKE %s OR hh.house_number ILIKE %s OR hh.address ILIKE %s
+            GROUP BY hh.id
+            ORDER BY hh.surname ASC
+            LIMIT 10
+        """, (f"%{q}%", f"%{q}%", f"%{q}%"))
+        households = cursor.fetchall()
 
-    results = []
-    user_role = session.get('role')
-    for resident in residents:
-        full_name = " ".join(filter(None, [
-            resident.get('firstname'),
-            resident.get('middlename'),
-            resident.get('surname')
-        ]))
-        if resident.get('household_id'):
-            resident_url = url_for(
-                'user_view_household' if user_role == 'user' else 'view_household',
-                household_id=resident.get('household_id')
-            )
-        else:
-            resident_url = url_for('user_view_members' if user_role == 'user' else 'view_members')
-        results.append({
-            'type': 'Resident',
-            'name': full_name,
-            'details': f"Household: {resident.get('household_name') or 'Unassigned'}",
-            'status': resident.get('status') or 'Active',
-            'id': resident.get('id'),
-            'url': resident_url
-        })
+        results = []
+        user_role = session.get('role')
+        for resident in residents:
+            full_name = " ".join(filter(None, [
+                resident.get('firstname'),
+                resident.get('middlename'),
+                resident.get('surname')
+            ]))
+            if resident.get('household_id'):
+                resident_url = url_for(
+                    'user_view_household' if user_role == 'user' else 'view_household',
+                    household_id=resident.get('household_id')
+                )
+            else:
+                resident_url = url_for('user_view_members' if user_role == 'user' else 'view_members')
+            results.append({
+                'type': 'Resident',
+                'name': full_name,
+                'details': f"Household: {resident.get('household_name') or 'Unassigned'}",
+                'status': resident.get('status') or 'Active',
+                'id': resident.get('id'),
+                'url': resident_url
+            })
 
-    for household in households:
-        results.append({
-            'type': 'Household',
-            'name': household.get('surname'),
-            'details': f"House No: {household.get('house_number') or 'N/A'} | Members: {household.get('member_count') or 0}",
-            'status': 'Read-only',
-            'id': household.get('id'),
-            'url': url_for(
-                'user_view_household' if user_role == 'user' else 'view_household',
-                household_id=household.get('id')
-            )
-        })
+        for household in households:
+            results.append({
+                'type': 'Household',
+                'name': household.get('surname'),
+                'details': f"House No: {household.get('house_number') or 'N/A'} | Members: {household.get('member_count') or 0}",
+                'status': 'Read-only',
+                'id': household.get('id'),
+                'url': url_for(
+                    'user_view_household' if user_role == 'user' else 'view_household',
+                    household_id=household.get('id')
+                )
+            })
 
-    return jsonify(results)
+        return jsonify(results)
+    except Exception as e:
+        print(f"[ERROR][search] /api/search_residents error: {e}")
+        return jsonify([]), 500
+    finally:
+        if conn:
+            conn.close()
 
 
 
@@ -1797,13 +1902,13 @@ def print_households_report():
                 SUM(CASE WHEN h.gender = 'Female' THEN 1 ELSE 0 END) AS female_members,
                 SUM(CASE WHEN COALESCE(h.status, 'Active') != 'Deceased' THEN 1 ELSE 0 END) AS active_members,
                 SUM(CASE WHEN COALESCE(h.status, 'Active') = 'Deceased' THEN 1 ELSE 0 END) AS deceased_members,
-                (
+                COALESCE((
                     SELECT MIN(al.created_at)
                     FROM audit_logs al
                     WHERE al.target_type = 'Household'
                       AND al.target_id = CAST(hh.id AS TEXT)
                       AND al.action_type = 'ADD'
-                ) AS household_registered
+                ), hh.created_at) AS household_registered
             FROM households hh
             LEFT JOIN household h ON hh.id = h.household_id
             GROUP BY hh.id
@@ -1816,7 +1921,7 @@ def print_households_report():
         query += " AND id = %s"
         params.append(household_id)
     if search:
-        query += " AND (surname LIKE %s OR house_number LIKE %s OR address LIKE %s)"
+        query += " AND (surname ILIKE %s OR house_number ILIKE %s OR address ILIKE %s)"
         params.extend([f"%{search}%"] * 3)
     if gender == 'Male':
         query += " AND male_members > 0"
@@ -1827,12 +1932,13 @@ def print_households_report():
     elif status == 'Deceased':
         query += " AND deceased_members > 0"
     if month_int == 'year':
-        query += " AND YEAR(household_registered) = YEAR(NOW())"
+        query += f" AND {_current_year_filter_sql('household_registered')}"
     elif month_int:
-        query += " AND MONTH(household_registered) = %s"
+        query += f" AND {_month_filter_sql('household_registered')}"
         params.append(month_int)
 
     query += " ORDER BY surname ASC"
+    print(f"[DEBUG][print] print_households_report filters household_id={household_id!r} search={search!r} gender={gender!r} status={status!r} month={month!r}")
     cursor.execute(query, params)
     households = cursor.fetchall()
     conn.close()
@@ -1956,12 +2062,13 @@ def print_audit_logs_report():
         query += " AND username = %s"
         params.append(username)
     if month_int == 'year':
-        query += " AND YEAR(created_at) = YEAR(NOW())"
+        query += f" AND {_current_year_filter_sql('created_at')}"
     elif month_int:
-        query += " AND MONTH(created_at) = %s"
+        query += f" AND {_month_filter_sql('created_at')}"
         params.append(month_int)
 
     query += " ORDER BY created_at DESC"
+    print(f"[DEBUG][print] print_audit_logs_report filters action_type={action_type!r} target_type={target_type!r} username={username!r} month={month!r}")
     cursor.execute(query, params)
     logs = cursor.fetchall()
     conn.close()
@@ -2069,18 +2176,18 @@ def print_all_members():
             SELECT
                 h.*,
                 hh.surname AS household_name,
-                (
+                COALESCE((
                     SELECT MIN(al.created_at)
                     FROM audit_logs al
                     WHERE al.target_type = 'Resident'
-                      AND al.target_id = CAST( AS TEXT)
+                      AND al.target_id = CAST(h.id AS TEXT)
                       AND al.action_type = 'ADD'
-                ) AS registration_date,
+                ), h.created_at) AS registration_date,
                 (
                     SELECT MIN(al.created_at)
                     FROM audit_logs al
                     WHERE al.target_type = 'Resident'
-                      AND al.target_id = CAST( AS TEXT)
+                      AND al.target_id = CAST(h.id AS TEXT)
                       AND al.action_type = 'UPDATE'
                       AND (
                           al.new_value LIKE '%"status": "Deceased"%'
@@ -2109,12 +2216,13 @@ def print_all_members():
     date_column = 'deceased_date' if report_type == 'deceased' else 'registration_date'
     if report_type in {'registered', 'deceased'}:
         if month_int == 'year':
-            query += f" AND YEAR({date_column}) = YEAR(NOW())"
+            query += f" AND {_current_year_filter_sql(date_column)}"
         elif month_int:
-            query += f" AND MONTH({date_column}) = %s"
+            query += f" AND {_month_filter_sql(date_column)}"
             params.append(month_int)
 
     query += " ORDER BY surname ASC, firstname ASC"
+    print(f"[DEBUG][print] print_all_members filters report_type={report_type!r} gender={gender!r} household_id={household_id!r} month={month!r}")
     cursor.execute(query, params)
     members = cursor.fetchall()
     conn.close()
@@ -2243,99 +2351,107 @@ def api_preview_residents():
     if 'username' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
 
-    report_type = request.args.get('report_type', 'all').strip()
-    gender = request.args.get('gender', '').strip()
-    household_id = request.args.get('household_id', '').strip()
-    month = request.args.get('month', '').strip()
-
-    if report_type not in {'all', 'registered', 'deceased'}:
-        report_type = 'all'
-    if gender not in {'Male', 'Female'}:
-        gender = ''
+    conn = None
     try:
-        month_int = int(month) if month else None
-        if month == 'year':
-            month_int = 'year'
-        elif month_int and (month_int < 1 or month_int > 12):
+        report_type = request.args.get('report_type', 'all').strip()
+        gender = request.args.get('gender', '').strip()
+        household_id = request.args.get('household_id', '').strip()
+        month = request.args.get('month', '').strip()
+
+        if report_type not in {'all', 'registered', 'deceased'}:
+            report_type = 'all'
+        if gender not in {'Male', 'Female'}:
+            gender = ''
+        try:
+            month_int = int(month) if month else None
+            if month == 'year':
+                month_int = 'year'
+            elif month_int and (month_int < 1 or month_int > 12):
+                month_int = None
+        except ValueError:
             month_int = None
-    except ValueError:
-        month_int = None
 
-    ensure_audit_log_schema()
-    conn, cursor = get_db()
-    query = """
-        SELECT *
-        FROM (
-            SELECT
-                h.*,
-                hh.surname AS household_name,
-                (
-                    SELECT MIN(al.created_at)
-                    FROM audit_logs al
-                    WHERE al.target_type = 'Resident'
-                      AND al.target_id = CAST( AS TEXT)
-                      AND al.action_type = 'ADD'
-                ) AS registration_date,
-                (
-                    SELECT MIN(al.created_at)
-                    FROM audit_logs al
-                    WHERE al.target_type = 'Resident'
-                      AND al.target_id = CAST( AS TEXT)
-                      AND al.action_type = 'UPDATE'
-                      AND (
-                          al.new_value LIKE '%"status": "Deceased"%'
-                          OR al.new_value LIKE '%"status":"Deceased"%'
-                      )
-                ) AS deceased_date
-            FROM household h
-            LEFT JOIN households hh ON h.household_id = hh.id
-        ) resident_report
-        WHERE 1=1
-    """
-    params = []
+        ensure_audit_log_schema()
+        conn, cursor = get_db()
+        query = """
+            SELECT *
+            FROM (
+                SELECT
+                    h.*,
+                    hh.surname AS household_name,
+                    COALESCE((
+                        SELECT MIN(al.created_at)
+                        FROM audit_logs al
+                        WHERE al.target_type = 'Resident'
+                          AND al.target_id = CAST(h.id AS TEXT)
+                          AND al.action_type = 'ADD'
+                    ), h.created_at) AS registration_date,
+                    (
+                        SELECT MIN(al.created_at)
+                        FROM audit_logs al
+                        WHERE al.target_type = 'Resident'
+                          AND al.target_id = CAST(h.id AS TEXT)
+                          AND al.action_type = 'UPDATE'
+                          AND (
+                              al.new_value LIKE '%"status": "Deceased"%'
+                              OR al.new_value LIKE '%"status":"Deceased"%'
+                          )
+                    ) AS deceased_date
+                FROM household h
+                LEFT JOIN households hh ON h.household_id = hh.id
+            ) resident_report
+            WHERE 1=1
+        """
+        params = []
 
-    if report_type == 'deceased':
-        query += " AND COALESCE(status, 'Active') = 'Deceased'"
-    elif report_type == 'registered':
-        query += " AND registration_date IS NOT NULL"
+        if report_type == 'deceased':
+            query += " AND COALESCE(status, 'Active') = 'Deceased'"
+        elif report_type == 'registered':
+            query += " AND registration_date IS NOT NULL"
 
-    if gender:
-        query += " AND gender = %s"
-        params.append(gender)
-    if household_id:
-        query += " AND household_id = %s"
-        params.append(household_id)
+        if gender:
+            query += " AND gender = %s"
+            params.append(gender)
+        if household_id:
+            query += " AND household_id = %s"
+            params.append(household_id)
 
-    date_column = 'deceased_date' if report_type == 'deceased' else 'registration_date'
-    if report_type in {'registered', 'deceased'}:
-        if month_int == 'year':
-            query += f" AND YEAR({date_column}) = YEAR(NOW())"
-        elif month_int:
-            query += f" AND MONTH({date_column}) = %s"
-            params.append(month_int)
+        date_column = 'deceased_date' if report_type == 'deceased' else 'registration_date'
+        if report_type in {'registered', 'deceased'}:
+            if month_int == 'year':
+                query += f" AND {_current_year_filter_sql(date_column)}"
+            elif month_int:
+                query += f" AND {_month_filter_sql(date_column)}"
+                params.append(month_int)
 
-    query += " ORDER BY surname ASC, firstname ASC LIMIT 100"
-    cursor.execute(query, params)
-    members = cursor.fetchall()
-    conn.close()
+        query += " ORDER BY surname ASC, firstname ASC LIMIT 100"
+        print(f"[DEBUG][preview] /api/preview/residents filters report_type={report_type!r} gender={gender!r} household_id={household_id!r} month={month!r}")
+        cursor.execute(query, params)
+        members = cursor.fetchall()
 
-    # Format for preview
-    items = []
-    for m in members:
-        items.append({
-            'id': m.get('id'),
-            'full_name': f"{m.get('surname', '')} {m.get('firstname', '')}".strip(),
-            'age': m.get('age'),
-            'gender': m.get('gender'),
-            'status': m.get('status', 'Active'),
-            'household_name': m.get('household_name', 'N/A'),
-            'registration_date': str(m.get('registration_date')) if m.get('registration_date') else None
+        # Format for preview
+        items = []
+        for m in members:
+            items.append({
+                'id': m.get('id'),
+                'full_name': f"{m.get('surname', '')} {m.get('firstname', '')}".strip(),
+                'age': m.get('age'),
+                'gender': m.get('gender'),
+                'status': m.get('status', 'Active'),
+                'household_name': m.get('household_name', 'N/A'),
+                'registration_date': str(m.get('registration_date')) if m.get('registration_date') else None
+            })
+
+        return jsonify({
+            'total': len(items),
+            'items': items
         })
-
-    return jsonify({
-        'total': len(items),
-        'items': items
-    })
+    except Exception as e:
+        print(f"[ERROR][preview] /api/preview/residents error: {e}")
+        return jsonify({'error': str(e), 'total': 0, 'items': []}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/preview/households')
 @require_role('admin')
@@ -2344,96 +2460,104 @@ def api_preview_households():
     if 'username' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
 
-    household_id = request.args.get('household_id', '').strip()
-    search = request.args.get('search', '').strip()
-    gender = request.args.get('gender', '').strip()
-    status = request.args.get('status', '').strip()
-    month = request.args.get('month', '').strip()
-
-    if gender not in {'Male', 'Female'}:
-        gender = ''
-    if status not in {'Active', 'Deceased'}:
-        status = ''
+    conn = None
     try:
-        month_int = int(month) if month else None
-        if month == 'year':
-            month_int = 'year'
-        elif month_int and (month_int < 1 or month_int > 12):
+        household_id = request.args.get('household_id', '').strip()
+        search = request.args.get('search', '').strip()
+        gender = request.args.get('gender', '').strip()
+        status = request.args.get('status', '').strip()
+        month = request.args.get('month', '').strip()
+
+        if gender not in {'Male', 'Female'}:
+            gender = ''
+        if status not in {'Active', 'Deceased'}:
+            status = ''
+        try:
+            month_int = int(month) if month else None
+            if month == 'year':
+                month_int = 'year'
+            elif month_int and (month_int < 1 or month_int > 12):
+                month_int = None
+        except ValueError:
             month_int = None
-    except ValueError:
-        month_int = None
 
-    ensure_audit_log_schema()
-    conn, cursor = get_db()
-    query = """
-        SELECT *
-        FROM (
-            SELECT
-                hh.id,
-                hh.surname,
-                hh.house_number,
-                hh.address,
-                COUNT(h.id) AS member_count,
-                SUM(CASE WHEN h.gender = 'Male' THEN 1 ELSE 0 END) AS male_members,
-                SUM(CASE WHEN h.gender = 'Female' THEN 1 ELSE 0 END) AS female_members,
-                SUM(CASE WHEN COALESCE(h.status, 'Active') != 'Deceased' THEN 1 ELSE 0 END) AS active_count,
-                SUM(CASE WHEN COALESCE(h.status, 'Active') = 'Deceased' THEN 1 ELSE 0 END) AS deceased_count,
-                (
-                    SELECT MIN(al.created_at)
-                    FROM audit_logs al
-                    WHERE al.target_type = 'Household'
-                      AND al.target_id = CAST( AS TEXT)
-                      AND al.action_type = 'ADD'
-                ) AS registration_date
-            FROM households hh
-            LEFT JOIN household h ON hh.id = h.household_id
-            GROUP BY hh.id
-        ) household_report
-        WHERE 1=1
-    """
-    params = []
+        ensure_audit_log_schema()
+        conn, cursor = get_db()
+        query = """
+            SELECT *
+            FROM (
+                SELECT
+                    hh.id,
+                    hh.surname,
+                    hh.house_number,
+                    hh.address,
+                    COUNT(h.id) AS member_count,
+                    SUM(CASE WHEN h.gender = 'Male' THEN 1 ELSE 0 END) AS male_members,
+                    SUM(CASE WHEN h.gender = 'Female' THEN 1 ELSE 0 END) AS female_members,
+                    SUM(CASE WHEN COALESCE(h.status, 'Active') != 'Deceased' THEN 1 ELSE 0 END) AS active_count,
+                    SUM(CASE WHEN COALESCE(h.status, 'Active') = 'Deceased' THEN 1 ELSE 0 END) AS deceased_count,
+                    COALESCE((
+                        SELECT MIN(al.created_at)
+                        FROM audit_logs al
+                        WHERE al.target_type = 'Household'
+                          AND al.target_id = CAST(hh.id AS TEXT)
+                          AND al.action_type = 'ADD'
+                    ), hh.created_at) AS registration_date
+                FROM households hh
+                LEFT JOIN household h ON hh.id = h.household_id
+                GROUP BY hh.id
+            ) household_report
+            WHERE 1=1
+        """
+        params = []
 
-    if household_id:
-        query += " AND id = %s"
-        params.append(household_id)
-    if search:
-        query += " AND (surname LIKE %s OR house_number LIKE %s OR address LIKE %s)"
-        params.extend([f"%{search}%"] * 3)
-    if gender == 'Male':
-        query += " AND male_members > 0"
-    elif gender == 'Female':
-        query += " AND female_members > 0"
-    if status == 'Active':
-        query += " AND active_count > 0"
-    elif status == 'Deceased':
-        query += " AND deceased_count > 0"
-    if month_int == 'year':
-        query += " AND YEAR(registration_date) = YEAR(NOW())"
-    elif month_int:
-        query += " AND MONTH(registration_date) = %s"
-        params.append(month_int)
+        if household_id:
+            query += " AND id = %s"
+            params.append(household_id)
+        if search:
+            query += " AND (surname ILIKE %s OR house_number ILIKE %s OR address ILIKE %s)"
+            params.extend([f"%{search}%"] * 3)
+        if gender == 'Male':
+            query += " AND male_members > 0"
+        elif gender == 'Female':
+            query += " AND female_members > 0"
+        if status == 'Active':
+            query += " AND active_count > 0"
+        elif status == 'Deceased':
+            query += " AND deceased_count > 0"
+        if month_int == 'year':
+            query += f" AND {_current_year_filter_sql('registration_date')}"
+        elif month_int:
+            query += f" AND {_month_filter_sql('registration_date')}"
+            params.append(month_int)
 
-    query += " ORDER BY surname ASC LIMIT 100"
-    cursor.execute(query, params)
-    households = cursor.fetchall()
-    conn.close()
+        query += " ORDER BY surname ASC LIMIT 100"
+        print(f"[DEBUG][preview] /api/preview/households filters household_id={household_id!r} search={search!r} gender={gender!r} status={status!r} month={month!r}")
+        cursor.execute(query, params)
+        households = cursor.fetchall()
 
-    items = []
-    for h in households:
-        items.append({
-            'id': h.get('id'),
-            'surname': h.get('surname'),
-            'house_number': h.get('house_number'),
-            'member_count': h.get('member_count', 0),
-            'active_count': h.get('active_count', 0),
-            'deceased_count': h.get('deceased_count', 0),
-            'registration_date': str(h.get('registration_date')) if h.get('registration_date') else None
+        items = []
+        for h in households:
+            items.append({
+                'id': h.get('id'),
+                'surname': h.get('surname'),
+                'house_number': h.get('house_number'),
+                'member_count': h.get('member_count', 0),
+                'active_count': h.get('active_count', 0),
+                'deceased_count': h.get('deceased_count', 0),
+                'registration_date': str(h.get('registration_date')) if h.get('registration_date') else None
+            })
+
+        return jsonify({
+            'total': len(items),
+            'items': items
         })
-
-    return jsonify({
-        'total': len(items),
-        'items': items
-    })
+    except Exception as e:
+        print(f"[ERROR][preview] /api/preview/households error: {e}")
+        return jsonify({'error': str(e), 'total': 0, 'items': []}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/preview/audit')
 @require_role('admin')
@@ -2442,60 +2566,68 @@ def api_preview_audit():
     if 'username' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
 
-    action_type = request.args.get('action_type', '').strip()
-    target_type = request.args.get('target_type', '').strip()
-    username = request.args.get('username', '').strip()
-    month = request.args.get('month', '').strip()
-
+    conn = None
     try:
-        month_int = int(month) if month else None
-        if month == 'year':
-            month_int = 'year'
-        elif month_int and (month_int < 1 or month_int > 12):
+        action_type = request.args.get('action_type', '').strip()
+        target_type = request.args.get('target_type', '').strip()
+        username = request.args.get('username', '').strip()
+        month = request.args.get('month', '').strip()
+
+        try:
+            month_int = int(month) if month else None
+            if month == 'year':
+                month_int = 'year'
+            elif month_int and (month_int < 1 or month_int > 12):
+                month_int = None
+        except ValueError:
             month_int = None
-    except ValueError:
-        month_int = None
 
-    ensure_audit_log_schema()
-    conn, cursor = get_db()
-    query = "SELECT * FROM audit_logs WHERE 1=1"
-    params = []
+        ensure_audit_log_schema()
+        conn, cursor = get_db()
+        query = "SELECT * FROM audit_logs WHERE 1=1"
+        params = []
 
-    if action_type:
-        query += " AND action_type = %s"
-        params.append(action_type)
-    if target_type:
-        query += " AND target_type = %s"
-        params.append(target_type)
-    if username:
-        query += " AND username = %s"
-        params.append(username)
-    if month_int == 'year':
-        query += " AND YEAR(created_at) = YEAR(NOW())"
-    elif month_int:
-        query += " AND MONTH(created_at) = %s"
-        params.append(month_int)
+        if action_type:
+            query += " AND action_type = %s"
+            params.append(action_type)
+        if target_type:
+            query += " AND target_type = %s"
+            params.append(target_type)
+        if username:
+            query += " AND username = %s"
+            params.append(username)
+        if month_int == 'year':
+            query += f" AND {_current_year_filter_sql('created_at')}"
+        elif month_int:
+            query += f" AND {_month_filter_sql('created_at')}"
+            params.append(month_int)
 
-    query += " ORDER BY created_at DESC LIMIT 100"
-    cursor.execute(query, params)
-    logs = cursor.fetchall()
-    conn.close()
+        query += " ORDER BY created_at DESC LIMIT 100"
+        print(f"[DEBUG][preview] /api/preview/audit filters action_type={action_type!r} target_type={target_type!r} username={username!r} month={month!r}")
+        cursor.execute(query, params)
+        logs = cursor.fetchall()
 
-    items = []
-    for log in logs:
-        items.append({
-            'id': log.get('id'),
-            'timestamp': str(log.get('created_at')) if log.get('created_at') else None,
-            'action_type': log.get('action_type'),
-            'target_type': log.get('target_type'),
-            'description': log.get('details'),
-            'username': log.get('username')
+        items = []
+        for log in logs:
+            items.append({
+                'id': log.get('id'),
+                'timestamp': str(log.get('created_at')) if log.get('created_at') else None,
+                'action_type': log.get('action_type'),
+                'target_type': log.get('target_type'),
+                'description': log.get('details'),
+                'username': log.get('username')
+            })
+
+        return jsonify({
+            'total': len(items),
+            'items': items
         })
-
-    return jsonify({
-        'total': len(items),
-        'items': items
-    })
+    except Exception as e:
+        print(f"[ERROR][preview] /api/preview/audit error: {e}")
+        return jsonify({'error': str(e), 'total': 0, 'items': []}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/analytics')
 @require_role('admin', 'user')
@@ -2512,343 +2644,351 @@ def api_dashboard():
     if 'username' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
     
-    activity = request.args.get('activity', 'registered').strip()
-    gender = request.args.get('gender', '').strip()
-    status = request.args.get('status', '').strip()
-    month = request.args.get('month', '').strip()
-    date_from = request.args.get('date_from', '').strip()
-    date_to = request.args.get('date_to', '').strip()
-    household = request.args.get('household', '').strip()
-    household_month = request.args.get('household_month', '').strip()
-    household_from = request.args.get('household_from', '').strip()
-    household_to = request.args.get('household_to', '').strip()
+    conn = None
+    try:
+        activity = request.args.get('activity', 'registered').strip()
+        gender = request.args.get('gender', '').strip()
+        status = request.args.get('status', '').strip()
+        month = request.args.get('month', '').strip()
+        date_from = request.args.get('date_from', '').strip()
+        date_to = request.args.get('date_to', '').strip()
+        household = request.args.get('household', '').strip()
+        household_month = request.args.get('household_month', '').strip()
+        household_from = request.args.get('household_from', '').strip()
+        household_to = request.args.get('household_to', '').strip()
 
-    if activity not in {'registered', 'deleted'}:
-        activity = 'registered'
+        if activity not in {'registered', 'deleted'}:
+            activity = 'registered'
 
-    def parse_filter_date(value):
-        try:
-            return datetime.strptime(value, '%Y-%m-%d').date() if value else None
-        except ValueError:
-            return None
-
-    def iso_date(value):
-        if not value:
-            return None
-        return value.isoformat() if hasattr(value, 'isoformat') else str(value)
-
-    filter_from = parse_filter_date(date_from)
-    filter_to = parse_filter_date(date_to)
-    hh_filter_from = parse_filter_date(household_from)
-    hh_filter_to = parse_filter_date(household_to)
-    
-    ensure_audit_log_schema()
-    conn, cursor = get_db()
-    
-    if activity == 'deleted':
-        cursor.execute("SELECT id, surname FROM households")
-        household_names = {str(row['id']): row['surname'] for row in cursor.fetchall()}
-        deleted_query = """
-            SELECT *
-            FROM audit_logs
-            WHERE target_type = 'Resident'
-              AND action_type = 'DELETE'
-        """
-        params = []
-        if month:
-            deleted_query += " AND MONTH(created_at) = %s"
-            params.append(month)
-        if filter_from:
-            deleted_query += " AND DATE(created_at) >= %s"
-            params.append(filter_from)
-        if filter_to:
-            deleted_query += " AND DATE(created_at) <= %s"
-            params.append(filter_to)
-        deleted_query += " ORDER BY created_at DESC"
-        cursor.execute(deleted_query, params)
-        deleted_logs = cursor.fetchall()
-        residents = []
-        for log in deleted_logs:
-            snapshot = {}
+        def parse_filter_date(value):
             try:
-                snapshot = json.loads(log.get('old_value') or '{}')
-            except Exception:
+                return datetime.strptime(value, '%Y-%m-%d').date() if value else None
+            except ValueError:
+                return None
+
+        def iso_date(value):
+            if not value:
+                return None
+            return value.isoformat() if hasattr(value, 'isoformat') else str(value)
+
+        filter_from = parse_filter_date(date_from)
+        filter_to = parse_filter_date(date_to)
+        hh_filter_from = parse_filter_date(household_from)
+        hh_filter_to = parse_filter_date(household_to)
+        
+        ensure_audit_log_schema()
+        conn, cursor = get_db()
+        print(f"[DEBUG][statistics] /api/dashboard filters activity={activity!r} gender={gender!r} status={status!r} month={month!r} date_from={date_from!r} date_to={date_to!r} household={household!r} household_month={household_month!r} household_from={household_from!r} household_to={household_to!r}")
+        
+        if activity == 'deleted':
+            cursor.execute("SELECT id, surname FROM households")
+            household_names = {str(row['id']): row['surname'] for row in cursor.fetchall()}
+            deleted_query = """
+                SELECT *
+                FROM audit_logs
+                WHERE target_type = 'Resident'
+                  AND action_type = 'DELETE'
+            """
+            params = []
+            if month:
+                deleted_query += f" AND {_month_filter_sql('created_at')}"
+                params.append(month)
+            if filter_from:
+                deleted_query += " AND DATE(created_at) >= %s"
+                params.append(filter_from)
+            if filter_to:
+                deleted_query += " AND DATE(created_at) <= %s"
+                params.append(filter_to)
+            deleted_query += " ORDER BY created_at DESC"
+            cursor.execute(deleted_query, params)
+            deleted_logs = cursor.fetchall()
+            residents = []
+            for log in deleted_logs:
                 snapshot = {}
-            if gender and snapshot.get('gender') != gender:
-                continue
-            if status and (snapshot.get('status') or 'Active') != status:
-                continue
-            hh_name = household_names.get(str(snapshot.get('household_id')), 'Unknown')
-            if household and hh_name != household:
-                continue
-            item = dict(snapshot)
-            item['id'] = snapshot.get('id') or log.get('target_id')
-            item['household_name'] = hh_name
-            item['address'] = None
-            item['registration_date'] = log.get('created_at')
-            item['date_of_death'] = None
-            item['status'] = snapshot.get('status') or 'Deleted'
-            item['deleted_at'] = log.get('created_at')
-            residents.append(item)
-    else:
-        # Build resident query with real registration/deceased timestamps from audit logs.
-        base_query = """
+                try:
+                    snapshot = json.loads(log.get('old_value') or '{}')
+                except Exception:
+                    snapshot = {}
+                if gender and snapshot.get('gender') != gender:
+                    continue
+                if status and (snapshot.get('status') or 'Active') != status:
+                    continue
+                hh_name = household_names.get(str(snapshot.get('household_id')), 'Unknown')
+                if household and hh_name != household:
+                    continue
+                item = dict(snapshot)
+                item['id'] = snapshot.get('id') or log.get('target_id')
+                item['household_name'] = hh_name
+                item['address'] = None
+                item['registration_date'] = log.get('created_at')
+                item['date_of_death'] = None
+                item['status'] = snapshot.get('status') or 'Deleted'
+                item['deleted_at'] = log.get('created_at')
+                residents.append(item)
+        else:
+            # Build resident query with real registration/deceased timestamps from audit logs.
+            base_query = """
+                SELECT *
+                FROM (
+                    SELECT
+                        h.*,
+                        hh.surname AS household_name,
+                        hh.address AS address,
+                        COALESCE((
+                            SELECT MIN(al.created_at)
+                            FROM audit_logs al
+                            WHERE al.target_type = 'Resident'
+                              AND al.target_id = CAST(h.id AS TEXT)
+                              AND al.action_type = 'ADD'
+                        ), h.created_at) AS registration_date,
+                        (
+                            SELECT MIN(al.created_at)
+                            FROM audit_logs al
+                            WHERE al.target_type = 'Resident'
+                              AND al.target_id = CAST(h.id AS TEXT)
+                              AND al.action_type = 'UPDATE'
+                              AND (
+                                  al.new_value LIKE '%"status": "Deceased"%'
+                                  OR al.new_value LIKE '%"status":"Deceased"%'
+                              )
+                        ) AS date_of_death
+                    FROM household h
+                    LEFT JOIN households hh ON h.household_id = hh.id
+                ) resident_dashboard
+                WHERE 1=1
+            """
+            params = []
+            
+            if gender:
+                base_query += " AND gender = %s"
+                params.append(gender)
+            
+            if status:
+                base_query += " AND COALESCE(status, 'Active') = %s"
+                params.append(status)
+
+            if household:
+                base_query += " AND household_name = %s"
+                params.append(household)
+            
+            if month:
+                base_query += f" AND {_month_filter_sql('registration_date')}"
+                params.append(month)
+
+            if filter_from:
+                base_query += " AND DATE(registration_date) >= %s"
+                params.append(filter_from)
+
+            if filter_to:
+                base_query += " AND DATE(registration_date) <= %s"
+                params.append(filter_to)
+            
+            cursor.execute(base_query, params)
+            residents = cursor.fetchall()
+
+        household_query = """
             SELECT *
             FROM (
                 SELECT
-                    h.*,
+                    hh.id,
                     hh.surname AS household_name,
-                    hh.address AS address,
-                    (
+                    hh.house_number,
+                    hh.address,
+                    COUNT(h.id) AS members,
+                    SUM(CASE WHEN COALESCE(h.status, 'Active') != 'Deceased' THEN 1 ELSE 0 END) AS active,
+                    SUM(CASE WHEN COALESCE(h.status, 'Active') = 'Deceased' THEN 1 ELSE 0 END) AS deceased,
+                    SUM(CASE WHEN h.gender = 'Male' THEN 1 ELSE 0 END) AS male,
+                    SUM(CASE WHEN h.gender = 'Female' THEN 1 ELSE 0 END) AS female,
+                    COALESCE((
                         SELECT MIN(al.created_at)
                         FROM audit_logs al
-                        WHERE al.target_type = 'Resident'
-                          AND al.target_id = CAST( AS TEXT)
+                        WHERE al.target_type = 'Household'
+                          AND al.target_id = CAST(hh.id AS TEXT)
                           AND al.action_type = 'ADD'
-                    ) AS registration_date,
-                    (
-                        SELECT MIN(al.created_at)
-                        FROM audit_logs al
-                        WHERE al.target_type = 'Resident'
-                          AND al.target_id = CAST( AS TEXT)
-                          AND al.action_type = 'UPDATE'
-                          AND (
-                              al.new_value LIKE '%"status": "Deceased"%'
-                              OR al.new_value LIKE '%"status":"Deceased"%'
-                          )
-                    ) AS date_of_death
-                FROM household h
-                LEFT JOIN households hh ON h.household_id = hh.id
-            ) resident_dashboard
+                    ), hh.created_at) AS registration_date
+                FROM households hh
+                LEFT JOIN household h ON hh.id = h.household_id
+                GROUP BY hh.id
+            ) household_dashboard
             WHERE 1=1
         """
-        params = []
-        
-        if gender:
-            base_query += " AND gender = %s"
-            params.append(gender)
-        
-        if status:
-            base_query += " AND COALESCE(status, 'Active') = %s"
-            params.append(status)
+        household_params = []
 
         if household:
-            base_query += " AND household_name = %s"
-            params.append(household)
+            household_query += " AND household_name = %s"
+            household_params.append(household)
+        if household_month:
+            household_query += f" AND {_month_filter_sql('registration_date')}"
+            household_params.append(household_month)
+        if hh_filter_from:
+            household_query += " AND DATE(registration_date) >= %s"
+            household_params.append(hh_filter_from)
+        if hh_filter_to:
+            household_query += " AND DATE(registration_date) <= %s"
+            household_params.append(hh_filter_to)
+
+        household_query += " ORDER BY household_name ASC"
+        cursor.execute(household_query, household_params)
+        households = cursor.fetchall()
         
-        if month:
-            base_query += " AND MONTH(registration_date) = %s"
-            params.append(month)
-
-        if filter_from:
-            base_query += " AND DATE(registration_date) >= %s"
-            params.append(filter_from)
-
-        if filter_to:
-            base_query += " AND DATE(registration_date) <= %s"
-            params.append(filter_to)
+        # Calculate stats
+        stats = {
+            'total': len(residents),
+            'male': sum(1 for r in residents if r.get('gender') == 'Male'),
+            'female': sum(1 for r in residents if r.get('gender') == 'Female'),
+            'deceased': sum(1 for r in residents if r.get('status') == 'Deceased')
+        }
+        print(f"[DEBUG][statistics] /api/dashboard returned residents={len(residents)} households={len(households)} stats={stats}")
         
-        cursor.execute(base_query, params)
-        residents = cursor.fetchall()
+        # Gender distribution
+        gender_data = {
+            'labels': ['Male', 'Female'],
+            'datasets': [{
+                'data': [stats['male'], stats['female']],
+                'backgroundColor': ['#3b82f6', '#ec4899']
+            }]
+        }
+        
+        # Status distribution
+        active = stats['total'] - stats['deceased']
+        status_data = {
+            'labels': ['Active', 'Deceased'],
+            'datasets': [{
+                'data': [active, stats['deceased']],
+                'backgroundColor': ['#10b981', '#ef4444']
+            }]
+        }
+        
+        # Monthly registration data - separate by stat type
+        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        
+        # Initialize counters for each stat type
+        monthly_total = {month_names[i-1]: 0 for i in range(1, 13)}
+        monthly_male = {month_names[i-1]: 0 for i in range(1, 13)}
+        monthly_female = {month_names[i-1]: 0 for i in range(1, 13)}
+        monthly_deceased = {month_names[i-1]: 0 for i in range(1, 13)}
+        
+        for r in residents:
+            reg_date = r.get('registration_date')
+            if reg_date:
+                try:
+                    m = reg_date.month if hasattr(reg_date, 'month') else int(str(reg_date).split('-')[1])
+                    month_label = month_names[m-1]
+                    
+                    monthly_total[month_label] += 1
+                    
+                    if r.get('gender') == 'Male':
+                        monthly_male[month_label] += 1
+                    elif r.get('gender') == 'Female':
+                        monthly_female[month_label] += 1
+                except:
+                    pass
 
-    household_query = """
-        SELECT *
-        FROM (
-            SELECT
-                hh.id,
-                hh.surname AS household_name,
-                hh.house_number,
-                hh.address,
-                COUNT(h.id) AS members,
-                SUM(CASE WHEN COALESCE(h.status, 'Active') != 'Deceased' THEN 1 ELSE 0 END) AS active,
-                SUM(CASE WHEN COALESCE(h.status, 'Active') = 'Deceased' THEN 1 ELSE 0 END) AS deceased,
-                SUM(CASE WHEN h.gender = 'Male' THEN 1 ELSE 0 END) AS male,
-                SUM(CASE WHEN h.gender = 'Female' THEN 1 ELSE 0 END) AS female,
-                (
-                    SELECT MIN(al.created_at)
-                    FROM audit_logs al
-                    WHERE al.target_type = 'Household'
-                      AND al.target_id = CAST( AS TEXT)
-                      AND al.action_type = 'ADD'
-                ) AS registration_date
-            FROM households hh
-            LEFT JOIN household h ON hh.id = h.household_id
-            GROUP BY hh.id
-        ) household_dashboard
-        WHERE 1=1
-    """
-    household_params = []
+            death_date = r.get('date_of_death')
+            if r.get('status') == 'Deceased' and death_date:
+                try:
+                    m = death_date.month if hasattr(death_date, 'month') else int(str(death_date).split('-')[1])
+                    monthly_deceased[month_names[m-1]] += 1
+                except:
+                    pass
+        
+        month_data = {
+            'labels': month_names,
+            'datasets': [
+                {
+                    'stat': 'total',
+                    'label': 'Total Residents',
+                    'data': [monthly_total[m] for m in month_names],
+                    'backgroundColor': '#2e86c1'
+                },
+                {
+                    'stat': 'male',
+                    'label': 'Male Residents',
+                    'data': [monthly_male[m] for m in month_names],
+                    'backgroundColor': '#1B3A57'
+                },
+                {
+                    'stat': 'female',
+                    'label': 'Female Residents',
+                    'data': [monthly_female[m] for m in month_names],
+                    'backgroundColor': '#c0392b'
+                },
+                {
+                    'stat': 'deceased',
+                    'label': 'Deceased',
+                    'data': [monthly_deceased[m] for m in month_names],
+                    'backgroundColor': '#f59e0b'
+                }
+            ]
+        }
+        
+        # Top households
+        household_counts = {}
+        for r in residents:
+            hh_name = r.get('household_name') or 'Unknown'
+            household_counts[hh_name] = household_counts.get(hh_name, 0) + 1
+        
+        top_households = sorted(household_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+        household_data = {
+            'labels': [h[0][:15] for h in top_households],
+            'datasets': [{
+                'data': [h[1] for h in top_households],
+                'backgroundColor': '#8b5cf6'
+            }]
+        }
+        
+        # Format residents for the frontend
+        residents_list = []
+        for r in residents:
+            residents_list.append({
+                'id': r.get('id'),
+                'firstname': r.get('firstname'),
+                'surname': r.get('surname'),
+                'middlename': r.get('middlename'),
+                'age': r.get('age'),
+                'gender': r.get('gender'),
+                'status': r.get('status', 'Active'),
+                'household': r.get('household_name'),
+                'address': r.get('address'),
+                'birthdate': r.get('birthdate'),
+                'registration_date': iso_date(r.get('registration_date')),
+                'date_of_death': iso_date(r.get('date_of_death')),
+                'deleted_at': iso_date(r.get('deleted_at')),
+                'civil_status': r.get('civil_status'),
+                'occupation': r.get('occupation')
+            })
 
-    if household:
-        household_query += " AND household_name = %s"
-        household_params.append(household)
-    if household_month:
-        household_query += " AND MONTH(registration_date) = %s"
-        household_params.append(household_month)
-    if hh_filter_from:
-        household_query += " AND DATE(registration_date) >= %s"
-        household_params.append(hh_filter_from)
-    if hh_filter_to:
-        household_query += " AND DATE(registration_date) <= %s"
-        household_params.append(hh_filter_to)
-
-    household_query += " ORDER BY household_name ASC"
-    cursor.execute(household_query, household_params)
-    households = cursor.fetchall()
-    
-    # Calculate stats
-    stats = {
-        'total': len(residents),
-        'male': sum(1 for r in residents if r.get('gender') == 'Male'),
-        'female': sum(1 for r in residents if r.get('gender') == 'Female'),
-        'deceased': sum(1 for r in residents if r.get('status') == 'Deceased')
-    }
-    
-    # Gender distribution
-    gender_data = {
-        'labels': ['Male', 'Female'],
-        'datasets': [{
-            'data': [stats['male'], stats['female']],
-            'backgroundColor': ['#3b82f6', '#ec4899']
-        }]
-    }
-    
-    # Status distribution
-    active = stats['total'] - stats['deceased']
-    status_data = {
-        'labels': ['Active', 'Deceased'],
-        'datasets': [{
-            'data': [active, stats['deceased']],
-            'backgroundColor': ['#10b981', '#ef4444']
-        }]
-    }
-    
-    # Monthly registration data - separate by stat type
-    month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    
-    # Initialize counters for each stat type
-    monthly_total = {month_names[i-1]: 0 for i in range(1, 13)}
-    monthly_male = {month_names[i-1]: 0 for i in range(1, 13)}
-    monthly_female = {month_names[i-1]: 0 for i in range(1, 13)}
-    monthly_deceased = {month_names[i-1]: 0 for i in range(1, 13)}
-    
-    for r in residents:
-        reg_date = r.get('registration_date')
-        if reg_date:
-            try:
-                m = reg_date.month if hasattr(reg_date, 'month') else int(str(reg_date).split('-')[1])
-                month_label = month_names[m-1]
-                
-                monthly_total[month_label] += 1
-                
-                if r.get('gender') == 'Male':
-                    monthly_male[month_label] += 1
-                elif r.get('gender') == 'Female':
-                    monthly_female[month_label] += 1
-            except:
-                pass
-
-        death_date = r.get('date_of_death')
-        if r.get('status') == 'Deceased' and death_date:
-            try:
-                m = death_date.month if hasattr(death_date, 'month') else int(str(death_date).split('-')[1])
-                monthly_deceased[month_names[m-1]] += 1
-            except:
-                pass
-    
-    month_data = {
-        'labels': month_names,
-        'datasets': [
-            {
-                'stat': 'total',
-                'label': 'Total Residents',
-                'data': [monthly_total[m] for m in month_names],
-                'backgroundColor': '#2e86c1'
-            },
-            {
-                'stat': 'male',
-                'label': 'Male Residents',
-                'data': [monthly_male[m] for m in month_names],
-                'backgroundColor': '#1B3A57'
-            },
-            {
-                'stat': 'female',
-                'label': 'Female Residents',
-                'data': [monthly_female[m] for m in month_names],
-                'backgroundColor': '#c0392b'
-            },
-            {
-                'stat': 'deceased',
-                'label': 'Deceased',
-                'data': [monthly_deceased[m] for m in month_names],
-                'backgroundColor': '#f59e0b'
-            }
-        ]
-    }
-    
-    # Top households
-    household_counts = {}
-    for r in residents:
-        hh_name = r.get('household_name') or 'Unknown'
-        household_counts[hh_name] = household_counts.get(hh_name, 0) + 1
-    
-    top_households = sorted(household_counts.items(), key=lambda x: x[1], reverse=True)[:5]
-    household_data = {
-        'labels': [h[0][:15] for h in top_households],
-        'datasets': [{
-            'data': [h[1] for h in top_households],
-            'backgroundColor': '#8b5cf6'
-        }]
-    }
-    
-    conn.close()
-    
-    # Format residents for the frontend
-    residents_list = []
-    for r in residents:
-        residents_list.append({
-            'id': r.get('id'),
-            'firstname': r.get('firstname'),
-            'surname': r.get('surname'),
-            'middlename': r.get('middlename'),
-            'age': r.get('age'),
-            'gender': r.get('gender'),
-            'status': r.get('status', 'Active'),
-            'household': r.get('household_name'),
-            'address': r.get('address'),
-            'birthdate': r.get('birthdate'),
-            'registration_date': iso_date(r.get('registration_date')),
-            'date_of_death': iso_date(r.get('date_of_death')),
-            'deleted_at': iso_date(r.get('deleted_at')),
-            'civil_status': r.get('civil_status'),
-            'occupation': r.get('occupation')
+        households_list = []
+        for h in households:
+            households_list.append({
+                'id': h.get('id'),
+                'household_name': h.get('household_name'),
+                'house_number': h.get('house_number'),
+                'address': h.get('address'),
+                'members': h.get('members') or 0,
+                'active': h.get('active') or 0,
+                'deceased': h.get('deceased') or 0,
+                'male': h.get('male') or 0,
+                'female': h.get('female') or 0,
+                'registration_date': iso_date(h.get('registration_date'))
+            })
+        
+        return jsonify({
+            'stats': stats,
+            'genderData': gender_data,
+            'statusData': status_data,
+            'monthData': month_data,
+            'householdData': household_data,
+            'activity': activity,
+            'residents': residents_list,
+            'households': households_list
         })
-
-    households_list = []
-    for h in households:
-        households_list.append({
-            'id': h.get('id'),
-            'household_name': h.get('household_name'),
-            'house_number': h.get('house_number'),
-            'address': h.get('address'),
-            'members': h.get('members') or 0,
-            'active': h.get('active') or 0,
-            'deceased': h.get('deceased') or 0,
-            'male': h.get('male') or 0,
-            'female': h.get('female') or 0,
-            'registration_date': iso_date(h.get('registration_date'))
-        })
-    
-    return jsonify({
-        'stats': stats,
-        'genderData': gender_data,
-        'statusData': status_data,
-        'monthData': month_data,
-        'householdData': household_data,
-        'activity': activity,
-        'residents': residents_list,
-        'households': households_list
-    })
+    except Exception as e:
+        print(f"[ERROR][statistics] /api/dashboard error: {e}")
+        return jsonify({'error': str(e), 'stats': {}}), 500
+    finally:
+        if conn:
+            conn.close()
 
 def init_app():
     """Initialize app - create all necessary tables at startup."""

@@ -334,6 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const suggestions = document.getElementById('member-suggestions');
     const rows = document.querySelectorAll('.resident-row');
     let lastSuggestions = [];
+    let searchRequestSeq = 0;
 
     function filterTable(val, exactMatch = false) {
         const query = val.toLowerCase().trim();
@@ -388,6 +389,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     searchBox.addEventListener("input", async function () {
         const query = this.value.trim();
+        const requestSeq = ++searchRequestSeq;
         
         if (query.length === 0) { 
             lastSuggestions = [];
@@ -399,6 +401,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             let res = await fetch(`/search_members?q=${encodeURIComponent(query)}`);
             let data = await res.json();
+            if (requestSeq !== searchRequestSeq) return;
             lastSuggestions = data;
             renderSuggestions(data, query);
         } catch (err) { 
