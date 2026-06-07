@@ -180,6 +180,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let lastSuggestions = [];
     let searchRequestSeq = 0;
+    let searchAbort = null;
 
     function filterTable(searchTerm, exactMatch = false) {
         const query = searchTerm.toLowerCase().trim();
@@ -201,7 +202,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const requestSeq = ++searchRequestSeq;
 
         if (query.length > 0) {
-            fetch(`/search_households?q=${encodeURIComponent(query)}`)
+            if (searchAbort) searchAbort.abort();
+            searchAbort = new AbortController();
+            fetch(`/search_households?q=${encodeURIComponent(query)}`, { signal: searchAbort.signal })
                 .then(response => response.json())
                 .then(data => {
                     if (requestSeq !== searchRequestSeq) return;
@@ -226,8 +229,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     } else {
                         suggestions.style.display = 'none';
                     }
+                })
+                .catch(err => {
+                    if (err.name !== 'AbortError') console.error("Search failed:", err);
                 });
         } else {
+            if (searchAbort) searchAbort.abort();
             lastSuggestions = [];
             suggestions.style.display = 'none';
             rows.forEach(row => row.style.display = '');

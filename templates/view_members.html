@@ -335,6 +335,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const rows = document.querySelectorAll('.resident-row');
     let lastSuggestions = [];
     let searchRequestSeq = 0;
+    let searchAbort = null;
 
     function filterTable(val, exactMatch = false) {
         const query = val.toLowerCase().trim();
@@ -399,12 +400,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         try {
-            let res = await fetch(`/search_members?q=${encodeURIComponent(query)}`);
+            if (searchAbort) searchAbort.abort();
+            searchAbort = new AbortController();
+            let res = await fetch(`/search_members?q=${encodeURIComponent(query)}`, { signal: searchAbort.signal });
             let data = await res.json();
             if (requestSeq !== searchRequestSeq) return;
             lastSuggestions = data;
             renderSuggestions(data, query);
         } catch (err) { 
+            if (err.name === 'AbortError') return;
             console.error("Search failed:", err); 
         }
     });

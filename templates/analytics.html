@@ -630,6 +630,11 @@ let allHouseholds  = [];
 let hhMap          = {};
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DASHBOARD_DEBUG = new URLSearchParams(window.location.search).has('debug');
+
+function dashboardDebug(...args) {
+    if (DASHBOARD_DEBUG) console.log(...args);
+}
 
 function daysInMonth(monthNum) {
     const year = new Date().getFullYear();
@@ -661,8 +666,26 @@ function getFilters() {
 
 function fmtDate(raw) {
     if (!raw) return null;
-    const d = new Date(raw);
+    const d = parseDashboardDate(raw);
     return isNaN(d) ? raw : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function parseDashboardDate(raw) {
+    if (!raw) return new Date(NaN);
+    if (raw instanceof Date) return raw;
+    const text = String(raw);
+    const m = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+    if (m) {
+        return new Date(
+            Number(m[1]),
+            Number(m[2]) - 1,
+            Number(m[3]),
+            Number(m[4] || 0),
+            Number(m[5] || 0),
+            Number(m[6] || 0)
+        );
+    }
+    return new Date(raw);
 }
 
 /* ═══════════════════════════════ BUILD DATA ═════════════════════════════════ */
@@ -673,7 +696,7 @@ function buildMonthlyFromResidents(residents) {
     residents.forEach(r => {
         const raw = r.registration_date || r.created_at || null;
         if (raw) {
-            const d = new Date(raw);
+            const d = parseDashboardDate(raw);
             if (!isNaN(d)) {
                 const m = d.getMonth();
                 c.total[m]++;
@@ -685,7 +708,7 @@ function buildMonthlyFromResidents(residents) {
 
         const deathRaw = r.date_of_death || r.deceased_date || null;
         if (activity === 'registered' && (r.status || '').toLowerCase() === 'deceased' && deathRaw) {
-            const deathDate = new Date(deathRaw);
+            const deathDate = parseDashboardDate(deathRaw);
             if (!isNaN(deathDate)) c.deceased[deathDate.getMonth()]++;
         }
     });
@@ -702,7 +725,7 @@ function buildDailyFromResidents(residents, monthStr) {
         residents.forEach(r => {
             const raw = r.registration_date || r.created_at || null;
             if (raw) {
-                const d = new Date(raw);
+                const d = parseDashboardDate(raw);
                 if (!isNaN(d) && d.getMonth() + 1 === monthNum) {
                     const idx = d.getDate() - 1;
                     if (idx >= 0 && idx < numDays) {
@@ -716,7 +739,7 @@ function buildDailyFromResidents(residents, monthStr) {
 
             const deathRaw = r.date_of_death || r.deceased_date || null;
             if (activity === 'registered' && (r.status || '').toLowerCase() === 'deceased' && deathRaw) {
-                const dd = new Date(deathRaw);
+                const dd = parseDashboardDate(deathRaw);
                 if (!isNaN(dd) && dd.getMonth() + 1 === monthNum) {
                     const idx = dd.getDate() - 1;
                     if (idx >= 0 && idx < numDays) c.deceased[idx]++;
@@ -733,7 +756,7 @@ function buildHouseholdMap(households, residents) {
     if (households && households.length) {
         households.forEach(h => {
             const hh = h.household_name || h.surname || 'Unknown';
-            const d = h.registration_date ? new Date(h.registration_date) : null;
+            const d = h.registration_date ? parseDashboardDate(h.registration_date) : null;
             map[hh] = {
                 members: Number(h.members || 0),
                 active: Number(h.active || 0),
@@ -778,19 +801,23 @@ function getSeriesForStat(stat) {
         const daily = buildDailyFromResidents(allResidents, monthFilter);
         return { labels: daily.labels, data: daily[stat] || [] };
     }
+    const md = dashData && dashData.monthData;
+    if (md) {
+        let primary = [];
+        if (Array.isArray(md.datasets) && md.datasets.length) {
+            const f = md.datasets.find(d => d.stat === stat || d.key === stat);
+            primary = f ? (f.data || []) : (md.datasets[0]?.data || []);
+        } else if (Array.isArray(md.data)) primary = md.data;
+        if (primary.length) {
+            const labels = Array.isArray(md.labels) ? md.labels : MONTHS.slice(0, primary.length || 12);
+            return { labels, data: primary.map(v => Number(v || 0)) };
+        }
+    }
     if (builtMonthData) {
         const s = builtMonthData[stat] || new Array(12).fill(0);
-        if (s.some(v => v > 0)) return { labels: MONTHS, data: s };
+        return { labels: MONTHS, data: s };
     }
-    const md = dashData && dashData.monthData;
-    if (!md) return { labels: MONTHS, data: new Array(12).fill(0) };
-    let primary = [];
-    if (Array.isArray(md.datasets) && md.datasets.length) {
-        const f = md.datasets.find(d => d.stat === stat || d.key === stat);
-        primary = f ? (f.data || []) : (md.datasets[0]?.data || []);
-    } else if (Array.isArray(md.data)) primary = md.data;
-    const labels = Array.isArray(md.labels) ? md.labels : MONTHS.slice(0, primary.length || 12);
-    return { labels, data: primary };
+    return { labels: MONTHS, data: new Array(12).fill(0) };
 }
 
 function buildGhost(data) {
@@ -980,10 +1007,17 @@ async function loadDashboard() {
     const f   = getFilters();
     const url = `/api/dashboard?activity=${encodeURIComponent(f.activity)}&gender=${encodeURIComponent(f.gender)}&status=${encodeURIComponent(f.status)}&month=${encodeURIComponent(f.month)}&date_from=${encodeURIComponent(f.dateFrom)}&date_to=${encodeURIComponent(f.dateTo)}&household=${encodeURIComponent(f.household)}&household_month=${encodeURIComponent(f.householdMonth)}&household_from=${encodeURIComponent(f.householdFrom)}&household_to=${encodeURIComponent(f.householdTo)}`;
     try {
+        dashboardDebug('[DEBUG-FRONTEND] loadDashboard: Fetching from', url);
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         dashData = await res.json();
+        dashboardDebug('[DEBUG-FRONTEND] loadDashboard: Response received:', dashData);
         const stats = dashData.stats || {};
+        dashboardDebug('[DEBUG-FRONTEND] Stats:', stats);
+        dashboardDebug('[DEBUG-FRONTEND] Residents count:', dashData.residents?.length || 0);
+        dashboardDebug('[DEBUG-FRONTEND] Households count:', dashData.households?.length || 0);
+        dashboardDebug('[DEBUG-FRONTEND] monthData:', dashData.monthData);
+        
         document.getElementById('statTotal').textContent    = stats.total    ?? '—';
         document.getElementById('statMale').textContent     = stats.male     ?? '—';
         document.getElementById('statFemale').textContent   = stats.female   ?? '—';
@@ -991,7 +1025,9 @@ async function loadDashboard() {
         allResidents   = dashData.residents || [];
         allHouseholds  = dashData.households || [];
         builtMonthData = buildMonthlyFromResidents(allResidents);
+        dashboardDebug('[DEBUG-FRONTEND] builtMonthData:', builtMonthData);
         hhMap          = buildHouseholdMap(allHouseholds, allResidents);
+        dashboardDebug('[DEBUG-FRONTEND] hhMap keys:', Object.keys(hhMap));
         populateHouseholdFilter(allResidents, allHouseholds);
         renderLineChart(activeStat);
         updateHouseholdStats();

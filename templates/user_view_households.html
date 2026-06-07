@@ -463,6 +463,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let lastSuggestions = [];
     let searchRequestSeq = 0;
+    let searchAbort = null;
 
     function filterTable(searchTerm, exactMatch = false) {
         const query = searchTerm.toLowerCase().trim();
@@ -482,13 +483,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const requestSeq = ++searchRequestSeq;
 
         if (query.length === 0) {
+            if (searchAbort) searchAbort.abort();
             lastSuggestions = [];
             suggestions.style.display = 'none';
             rows.forEach(row => row.style.display = '');
             return;
         }
 
-        fetch(`/search_households?q=${encodeURIComponent(query)}`)
+        if (searchAbort) searchAbort.abort();
+        searchAbort = new AbortController();
+        fetch(`/search_households?q=${encodeURIComponent(query)}`, { signal: searchAbort.signal })
             .then(response => response.json())
             .then(data => {
                 if (requestSeq !== searchRequestSeq) return;
@@ -517,6 +521,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     suggestions.appendChild(div);
                 });
 
+            })
+            .catch(error => {
+                if (error.name !== 'AbortError') console.error('Error:', error);
             });
     });
 

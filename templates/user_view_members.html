@@ -504,6 +504,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let lastSuggestions = [];
     let searchRequestSeq = 0;
+    let searchAbort = null;
 
     function filterTable(value, exactMatch = false) {
         const query = value.toLowerCase().trim();
@@ -553,6 +554,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const query = e.target.value.trim();
         const requestSeq = ++searchRequestSeq;
         if (!query) {
+            if (searchAbort) searchAbort.abort();
             lastSuggestions = [];
             suggestionsPanel.style.display = 'none';
             filterTable('');
@@ -560,12 +562,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         try {
-            const response = await fetch(`/search_members?q=${encodeURIComponent(query)}`);
+            if (searchAbort) searchAbort.abort();
+            searchAbort = new AbortController();
+            const response = await fetch(`/search_members?q=${encodeURIComponent(query)}`, { signal: searchAbort.signal });
             const results = await response.json();
             if (requestSeq !== searchRequestSeq) return;
             lastSuggestions = results;
             renderSuggestions(results, query);
         } catch (error) {
+            if (error.name === 'AbortError') return;
             console.error('Error:', error);
         }
     });

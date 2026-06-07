@@ -66,6 +66,10 @@ CONTEXT_AWARE_ENDPOINTS = {
 
 AUTH_SCHEMA_INITIALIZED = False
 
+def debug_log(message):
+    if os.environ.get('APP_DEBUG_LOGS', '').lower() in {'1', 'true', 'yes', 'on'}:
+        print(message)
+
 
 
 def get_db():
@@ -281,8 +285,17 @@ def ensure_auth_schema_safe():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_households_created_at ON households (created_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs (created_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_target ON audit_logs (target_type, target_id)")
-
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_target_action_created ON audit_logs (target_type, action_type, target_id, created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_action_created ON audit_logs (action_type, created_at)")
         conn.commit()
+        try:
+            cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_household_name_trgm ON household USING GIN ((CONCAT_WS(' ', firstname, middlename, surname)) gin_trgm_ops)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_households_search_trgm ON households USING GIN ((CONCAT_WS(' ', surname, house_number, address)) gin_trgm_ops)")
+            conn.commit()
+        except Exception as index_error:
+            print(f"Warning: pg_trgm indexes skipped: {index_error}")
+            conn.rollback()
         conn.close()
         AUTH_SCHEMA_INITIALIZED = True
         return True
@@ -591,7 +604,7 @@ def signup():
             # Insert new user with 'pending' status
             cursor.execute("""
                 INSERT INTO users (username, password, email, role, status, signup_date) 
-                VALUES (%s, %s, %s, %s, %s, NOW())
+                VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                 RETURNING id
             """, (username, password, email, 'user', 'pending'))
             
@@ -788,7 +801,7 @@ def reset_password(token):
             
             # Mark token as used
             cursor.execute("""
-                UPDATE password_resets SET used=TRUE, used_at=NOW() WHERE token=%s
+                UPDATE password_resets SET used=TRUE, used_at=CURRENT_TIMESTAMP WHERE token=%s
             """, (token,))
             
             conn.commit()
@@ -1069,7 +1082,7 @@ def user_home():
         return redirect(url_for('login'))
     
     conn, cursor = get_db()
-    print("[DEBUG][statistics] Loading user dashboard totals from household and households tables")
+    debug_log("[DEBUG][statistics] Loading user dashboard totals from household and households tables")
     cursor.execute("""
         SELECT
             COUNT(*) FILTER (WHERE COALESCE(status, 'Active') != 'Deceased') AS total_residents,
@@ -1085,7 +1098,7 @@ def user_home():
     total_females = resident_totals['total_females']
     cursor.execute("SELECT COUNT(*) AS total FROM households")
     total_households = cursor.fetchone()['total']
-    print(f"[DEBUG][statistics] user totals residents={total_residents} deceased={total_deceased} households={total_households} male={total_males} female={total_females}")
+    debug_log(f"[DEBUG][statistics] user totals residents={total_residents} deceased={total_deceased} households={total_households} male={total_males} female={total_females}")
     conn.close()
     
     return render_template(
@@ -1158,7 +1171,7 @@ def user_view_households():
         sql += " WHERE hh.surname ILIKE %s OR hh.house_number ILIKE %s OR hh.address ILIKE %s"
         params = [f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"]
     
-    sql += " GROUP BY hh.id ORDER BY hh.id DESC"
+    sql += " GROUP BY hh.id, hh.surname, hh.house_number, hh.address, hh.created_at ORDER BY hh.id DESC"
     cursor.execute(sql, params)
     households = cursor.fetchall()
     conn.close()
@@ -1255,7 +1268,7 @@ def home():
         return redirect(url_for('login'))
     
     conn, cursor = get_db()
-    print("[DEBUG][statistics] Loading home dashboard totals from household and households tables")
+    debug_log("[DEBUG][statistics] Loading home dashboard totals from household and households tables")
     cursor.execute("""
         SELECT
             COUNT(*) FILTER (WHERE COALESCE(status, 'Active') != 'Deceased') AS total_residents,
@@ -1271,7 +1284,7 @@ def home():
     total_females = resident_totals['total_females']
     cursor.execute("SELECT COUNT(*) AS total FROM households")
     total_households = cursor.fetchone()['total']
-    print(f"[DEBUG][statistics] totals residents={total_residents} deceased={total_deceased} households={total_households} male={total_males} female={total_females}")
+    debug_log(f"[DEBUG][statistics] totals residents={total_residents} deceased={total_deceased} households={total_households} male={total_males} female={total_females}")
     conn.close()
     
     return render_template(
@@ -1337,7 +1350,7 @@ def view_households():
         sql += " WHERE hh.surname ILIKE %s OR hh.house_number ILIKE %s OR hh.address ILIKE %s"
         params = [f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"]
 
-    sql += " GROUP BY hh.id ORDER BY hh.id DESC"
+    sql += " GROUP BY hh.id, hh.surname, hh.house_number, hh.address, hh.created_at ORDER BY hh.id DESC"
     
     cursor.execute(sql, params)
     households = cursor.fetchall()
@@ -1370,7 +1383,7 @@ def search_households():
     conn = None
     try:
         conn, cursor = get_db()
-        print(f"[DEBUG][search] /search_households q={q!r}")
+        debug_log(f"[DEBUG][search] /search_households q={q!r}")
         # Updated query to join and get member counts for the suggestion dropdown
         query = """
             SELECT hh.id, hh.surname, hh.house_number, COUNT(h.id) as count
@@ -1381,7 +1394,7 @@ def search_households():
                OR hh.house_number ILIKE %s
                OR hh.address ILIKE %s
                OR CONCAT_WS(' ', hh.surname, hh.house_number, hh.address) ILIKE %s
-            GROUP BY hh.id
+            GROUP BY hh.id, hh.surname, hh.house_number, hh.address
             ORDER BY hh.surname ASC
             LIMIT 10
         """
@@ -1411,7 +1424,7 @@ def search_members():
     conn = None
     try:
         conn, cursor = get_db()
-        print(f"[DEBUG][search] /search_members q={q!r}")
+        debug_log(f"[DEBUG][search] /search_members q={q!r}")
         # This query pulls the surname from the 'households' table
         query = """
             SELECT h.id, h.firstname, h.middlename, h.surname, h.occupation, hh.surname as hh_name
@@ -1456,7 +1469,7 @@ def api_search_residents():
     conn = None
     try:
         conn, cursor = get_db()
-        print(f"[DEBUG][search] /api/search_residents q={q!r}")
+        debug_log(f"[DEBUG][search] /api/search_residents q={q!r}")
         cursor.execute("""
             SELECT h.id, h.firstname, h.middlename, h.surname, h.gender, h.status,
                    hh.id AS household_id, hh.surname AS household_name, hh.house_number
@@ -1478,7 +1491,7 @@ def api_search_residents():
             FROM households hh
             LEFT JOIN household h ON hh.id = h.household_id
             WHERE hh.surname ILIKE %s OR hh.house_number ILIKE %s OR hh.address ILIKE %s
-            GROUP BY hh.id
+            GROUP BY hh.id, hh.surname, hh.house_number, hh.address, hh.created_at
             ORDER BY hh.surname ASC
             LIMIT 10
         """, (f"%{q}%", f"%{q}%", f"%{q}%"))
@@ -1911,7 +1924,7 @@ def print_households_report():
                 ), hh.created_at) AS household_registered
             FROM households hh
             LEFT JOIN household h ON hh.id = h.household_id
-            GROUP BY hh.id
+            GROUP BY hh.id, hh.surname, hh.house_number, hh.address, hh.created_at
         ) household_report
         WHERE 1=1
     """
@@ -2190,8 +2203,8 @@ def print_all_members():
                       AND al.target_id = CAST(h.id AS TEXT)
                       AND al.action_type = 'UPDATE'
                       AND (
-                          al.new_value LIKE '%"status": "Deceased"%'
-                          OR al.new_value LIKE '%"status":"Deceased"%'
+                          al.new_value ILIKE '%"status": "Deceased"%'
+                          OR al.new_value ILIKE '%"status":"Deceased"%'
                       )
                 ) AS deceased_date
             FROM household h
@@ -2393,8 +2406,8 @@ def api_preview_residents():
                           AND al.target_id = CAST(h.id AS TEXT)
                           AND al.action_type = 'UPDATE'
                           AND (
-                              al.new_value LIKE '%"status": "Deceased"%'
-                              OR al.new_value LIKE '%"status":"Deceased"%'
+                              al.new_value ILIKE '%"status": "Deceased"%'
+                              OR al.new_value ILIKE '%"status":"Deceased"%'
                           )
                     ) AS deceased_date
                 FROM household h
@@ -2425,7 +2438,7 @@ def api_preview_residents():
                 params.append(month_int)
 
         query += " ORDER BY surname ASC, firstname ASC LIMIT 100"
-        print(f"[DEBUG][preview] /api/preview/residents filters report_type={report_type!r} gender={gender!r} household_id={household_id!r} month={month!r}")
+        debug_log(f"[DEBUG][preview] /api/preview/residents filters report_type={report_type!r} gender={gender!r} household_id={household_id!r} month={month!r}")
         cursor.execute(query, params)
         members = cursor.fetchall()
 
@@ -2505,7 +2518,7 @@ def api_preview_households():
                     ), hh.created_at) AS registration_date
                 FROM households hh
                 LEFT JOIN household h ON hh.id = h.household_id
-                GROUP BY hh.id
+                GROUP BY hh.id, hh.surname, hh.house_number, hh.address, hh.created_at
             ) household_report
             WHERE 1=1
         """
@@ -2532,7 +2545,7 @@ def api_preview_households():
             params.append(month_int)
 
         query += " ORDER BY surname ASC LIMIT 100"
-        print(f"[DEBUG][preview] /api/preview/households filters household_id={household_id!r} search={search!r} gender={gender!r} status={status!r} month={month!r}")
+        debug_log(f"[DEBUG][preview] /api/preview/households filters household_id={household_id!r} search={search!r} gender={gender!r} status={status!r} month={month!r}")
         cursor.execute(query, params)
         households = cursor.fetchall()
 
@@ -2603,7 +2616,7 @@ def api_preview_audit():
             params.append(month_int)
 
         query += " ORDER BY created_at DESC LIMIT 100"
-        print(f"[DEBUG][preview] /api/preview/audit filters action_type={action_type!r} target_type={target_type!r} username={username!r} month={month!r}")
+        debug_log(f"[DEBUG][preview] /api/preview/audit filters action_type={action_type!r} target_type={target_type!r} username={username!r} month={month!r}")
         cursor.execute(query, params)
         logs = cursor.fetchall()
 
@@ -2678,11 +2691,17 @@ def api_dashboard():
         
         ensure_audit_log_schema()
         conn, cursor = get_db()
-        print(f"[DEBUG][statistics] /api/dashboard filters activity={activity!r} gender={gender!r} status={status!r} month={month!r} date_from={date_from!r} date_to={date_to!r} household={household!r} household_month={household_month!r} household_from={household_from!r} household_to={household_to!r}")
+        debug_log(f"\n[DEBUG][statistics] ===== /api/dashboard START =====")
+        debug_log(f"[DEBUG][statistics] Filters: activity={activity!r} gender={gender!r} status={status!r} month={month!r}")
+        debug_log(f"[DEBUG][statistics]   date_from={date_from!r} date_to={date_to!r}")
+        debug_log(f"[DEBUG][statistics]   household={household!r} household_month={household_month!r}")
+        debug_log(f"[DEBUG][statistics]   household_from={household_from!r} household_to={household_to!r}")
         
         if activity == 'deleted':
             cursor.execute("SELECT id, surname FROM households")
             household_names = {str(row['id']): row['surname'] for row in cursor.fetchall()}
+            debug_log(f"[DEBUG][statistics] Household names loaded: {len(household_names)} households")
+            
             deleted_query = """
                 SELECT *
                 FROM audit_logs
@@ -2700,8 +2719,10 @@ def api_dashboard():
                 deleted_query += " AND DATE(created_at) <= %s"
                 params.append(filter_to)
             deleted_query += " ORDER BY created_at DESC"
+            debug_log(f"[DEBUG][statistics] Deleted query: {deleted_query!r} with params {params!r}")
             cursor.execute(deleted_query, params)
             deleted_logs = cursor.fetchall()
+            debug_log(f"[DEBUG][statistics] Deleted logs fetched: {len(deleted_logs)} records")
             residents = []
             for log in deleted_logs:
                 snapshot = {}
@@ -2748,8 +2769,8 @@ def api_dashboard():
                               AND al.target_id = CAST(h.id AS TEXT)
                               AND al.action_type = 'UPDATE'
                               AND (
-                                  al.new_value LIKE '%"status": "Deceased"%'
-                                  OR al.new_value LIKE '%"status":"Deceased"%'
+                                  al.new_value ILIKE '%"status": "Deceased"%'
+                                  OR al.new_value ILIKE '%"status":"Deceased"%'
                               )
                         ) AS date_of_death
                     FROM household h
@@ -2783,8 +2804,11 @@ def api_dashboard():
                 base_query += " AND DATE(registration_date) <= %s"
                 params.append(filter_to)
             
+            debug_log(f"[DEBUG][statistics] Residents query SQL:\n{base_query}")
+            debug_log(f"[DEBUG][statistics] Residents query params: {params!r}")
             cursor.execute(base_query, params)
             residents = cursor.fetchall()
+            debug_log(f"[DEBUG][statistics] Residents fetched: {len(residents)} records")
 
         household_query = """
             SELECT *
@@ -2808,7 +2832,7 @@ def api_dashboard():
                     ), hh.created_at) AS registration_date
                 FROM households hh
                 LEFT JOIN household h ON hh.id = h.household_id
-                GROUP BY hh.id
+                GROUP BY hh.id, hh.surname, hh.house_number, hh.address, hh.created_at
             ) household_dashboard
             WHERE 1=1
         """
@@ -2828,8 +2852,11 @@ def api_dashboard():
             household_params.append(hh_filter_to)
 
         household_query += " ORDER BY household_name ASC"
+        debug_log(f"[DEBUG][statistics] Households query SQL:\n{household_query}")
+        debug_log(f"[DEBUG][statistics] Households query params: {household_params!r}")
         cursor.execute(household_query, household_params)
         households = cursor.fetchall()
+        debug_log(f"[DEBUG][statistics] Households fetched: {len(households)} records")
         
         # Calculate stats
         stats = {
@@ -2838,7 +2865,7 @@ def api_dashboard():
             'female': sum(1 for r in residents if r.get('gender') == 'Female'),
             'deceased': sum(1 for r in residents if r.get('status') == 'Deceased')
         }
-        print(f"[DEBUG][statistics] /api/dashboard returned residents={len(residents)} households={len(households)} stats={stats}")
+        debug_log(f"[DEBUG][statistics] Stats calculated: {stats}")
         
         # Gender distribution
         gender_data = {
@@ -2973,7 +3000,15 @@ def api_dashboard():
                 'registration_date': iso_date(h.get('registration_date'))
             })
         
-        return jsonify({
+        debug_log(f"[DEBUG][statistics] Formatted residents_list: {len(residents_list)} items")
+        debug_log(f"[DEBUG][statistics] Formatted households_list: {len(households_list)} items")
+        debug_log(f"[DEBUG][statistics] Month data labels: {month_data.get('labels')}")
+        debug_log(f"[DEBUG][statistics] Month data datasets count: {len(month_data.get('datasets', []))}")
+        if month_data.get('datasets'):
+            for ds in month_data['datasets']:
+                debug_log(f"[DEBUG][statistics]   Dataset stat={ds.get('stat')} label={ds.get('label')} data={ds.get('data')}")
+        
+        response = {
             'stats': stats,
             'genderData': gender_data,
             'statusData': status_data,
@@ -2982,7 +3017,11 @@ def api_dashboard():
             'activity': activity,
             'residents': residents_list,
             'households': households_list
-        })
+        }
+        debug_log(f"[DEBUG][statistics] Final response keys: {list(response.keys())}")
+        debug_log(f"[DEBUG][statistics] ===== /api/dashboard END =====\n")
+        
+        return jsonify(response)
     except Exception as e:
         print(f"[ERROR][statistics] /api/dashboard error: {e}")
         return jsonify({'error': str(e), 'stats': {}}), 500
