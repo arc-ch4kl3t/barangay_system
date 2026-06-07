@@ -628,12 +628,18 @@ let builtMonthData = null;
 let allResidents   = [];
 let allHouseholds  = [];
 let hhMap          = {};
+let dashboardLoaded = false;
+let dashboardRequestSeq = 0;
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DASHBOARD_DEBUG = new URLSearchParams(window.location.search).has('debug');
 
 function dashboardDebug(...args) {
     if (DASHBOARD_DEBUG) console.log(...args);
+}
+
+function dashboardTrace(...args) {
+    console.log(...args);
 }
 
 function daysInMonth(monthNum) {
@@ -795,23 +801,40 @@ function populateHouseholdFilter(residents, households = []) {
 }
 
 /* ═══════════════════════════════ SERIES ════════════════════════════════════ */
+function normalizeMonthSeries(monthData, stat) {
+    const labels = Array.isArray(monthData?.labels) && monthData.labels.length
+        ? monthData.labels.map(label => String(label))
+        : MONTHS.slice();
+    let values = [];
+
+    if (Array.isArray(monthData?.datasets)) {
+        const selected = monthData.datasets.find(ds => ds.stat === stat || ds.key === stat || ds.label === statMeta[stat]?.label)
+            || monthData.datasets[0];
+        values = Array.isArray(selected?.data) ? selected.data : [];
+    } else if (Array.isArray(monthData?.data)) {
+        values = monthData.data;
+    } else if (monthData && Array.isArray(monthData[stat])) {
+        values = monthData[stat];
+    }
+
+    const parsed = {
+        labels,
+        data: labels.map((_, index) => Number(values[index] ?? 0))
+    };
+    dashboardTrace('[DEBUG-FRONTEND] parsed monthData:', { stat, parsed, source: monthData });
+    return parsed;
+}
+
 function getSeriesForStat(stat) {
     const monthFilter = getFilters().month;
     if (monthFilter) {
         const daily = buildDailyFromResidents(allResidents, monthFilter);
-        return { labels: daily.labels, data: daily[stat] || [] };
+        const series = { labels: daily.labels, data: (daily[stat] || []).map(v => Number(v || 0)) };
+        dashboardTrace('[DEBUG-FRONTEND] parsed dailyData:', { stat, series });
+        return series;
     }
-    const md = dashData && dashData.monthData;
-    if (md) {
-        let primary = [];
-        if (Array.isArray(md.datasets) && md.datasets.length) {
-            const f = md.datasets.find(d => d.stat === stat || d.key === stat);
-            primary = f ? (f.data || []) : (md.datasets[0]?.data || []);
-        } else if (Array.isArray(md.data)) primary = md.data;
-        if (primary.length) {
-            const labels = Array.isArray(md.labels) ? md.labels : MONTHS.slice(0, primary.length || 12);
-            return { labels, data: primary.map(v => Number(v || 0)) };
-        }
+    if (dashData?.monthData) {
+        return normalizeMonthSeries(dashData.monthData, stat);
     }
     if (builtMonthData) {
         const s = builtMonthData[stat] || new Array(12).fill(0);
@@ -830,6 +853,7 @@ function buildGhost(data) {
 
 /* ══════════════════════════ RENDER LINE CHART ══════════════════════════════ */
 function renderLineChart(stat) {
+    if (!dashboardLoaded || !dashData) return;
     const canvas = document.getElementById('mainLineChart');
     if (!canvas || typeof Chart === 'undefined') { setTimeout(() => renderLineChart(stat), 150); return; }
     const ctx  = canvas.getContext('2d');
@@ -854,6 +878,7 @@ function renderLineChart(stat) {
               pointRadius: 3, pointHoverRadius: 5, borderWidth: 1.8, borderDash: [5, 5], tension: 0.4, fill: false }
         ]
     };
+    dashboardTrace('[DEBUG-FRONTEND] final line chart dataset:', cd);
 
     const opts = {
         responsive: true, maintainAspectRatio: false,
@@ -876,8 +901,14 @@ function renderLineChart(stat) {
         }
     };
 
-    if (lineChart) { lineChart.data = cd; lineChart.options = opts; lineChart.update('active'); }
-    else lineChart = new Chart(ctx, { type: 'line', data: cd, options: opts });
+    if (lineChart) {
+        lineChart.data.labels = cd.labels;
+        lineChart.data.datasets = cd.datasets;
+        lineChart.options = opts;
+        lineChart.update();
+    } else {
+        lineChart = new Chart(ctx, { type: 'line', data: cd, options: opts });
+    }
 
     document.getElementById('chartTitle').textContent  = `${meta.label} ${(getFilters().activity || 'registered') === 'deleted' ? 'Deleted' : 'Registered'} Statistics`;
     document.getElementById('chartSub').textContent    = subText;
@@ -888,8 +919,9 @@ function renderLineChart(stat) {
 
 /* ═══════════════════════ RENDER HOUSEHOLD CHART ════════════════════════════ */
 function renderHouseholdChart(tab) {
+    if (!dashboardLoaded || !dashData) return;
     const canvas = document.getElementById('householdBarChart');
-    if (!canvas || typeof Chart === 'undefined') return;
+    if (!canvas || typeof Chart === 'undefined') { setTimeout(() => renderHouseholdChart(tab), 150); return; }
     const ctx      = canvas.getContext('2d');
     const hhFilter = document.getElementById('filterHousehold').value;
     let sorted = Object.entries(hhMap)
@@ -906,6 +938,7 @@ function renderHouseholdChart(tab) {
             backgroundColor: color + '22', borderColor: color,
             borderWidth: 2, borderRadius: 6, borderSkipped: false, hoverBackgroundColor: color + '50' }]
     };
+    dashboardTrace('[DEBUG-FRONTEND] final household chart dataset:', cd);
     const opts = {
         responsive: true, maintainAspectRatio: false, indexAxis: 'y',
         plugins: { legend: { display: false },
@@ -917,8 +950,14 @@ function renderHouseholdChart(tab) {
             y: { grid: { display: false }, ticks: { color: '#3d5a75', font: { size: 11, weight: '600' } } }
         }
     };
-    if (hhBarChart) { hhBarChart.data = cd; hhBarChart.options = opts; hhBarChart.update('active'); }
-    else hhBarChart = new Chart(ctx, { type: 'bar', data: cd, options: opts });
+    if (hhBarChart) {
+        hhBarChart.data.labels = cd.labels;
+        hhBarChart.data.datasets = cd.datasets;
+        hhBarChart.options = opts;
+        hhBarChart.update();
+    } else {
+        hhBarChart = new Chart(ctx, { type: 'bar', data: cd, options: opts });
+    }
 }
 
 /* ═══════════════════════ RENDER HOUSEHOLD TABLE ════════════════════════════ */
@@ -1004,13 +1043,19 @@ function switchStat(stat) {
 
 /* ═══════════════════════════ LOAD DASHBOARD ════════════════════════════════ */
 async function loadDashboard() {
+    const requestSeq = ++dashboardRequestSeq;
+    dashboardLoaded = false;
     const f   = getFilters();
     const url = `/api/dashboard?activity=${encodeURIComponent(f.activity)}&gender=${encodeURIComponent(f.gender)}&status=${encodeURIComponent(f.status)}&month=${encodeURIComponent(f.month)}&date_from=${encodeURIComponent(f.dateFrom)}&date_to=${encodeURIComponent(f.dateTo)}&household=${encodeURIComponent(f.household)}&household_month=${encodeURIComponent(f.householdMonth)}&household_from=${encodeURIComponent(f.householdFrom)}&household_to=${encodeURIComponent(f.householdTo)}`;
     try {
         dashboardDebug('[DEBUG-FRONTEND] loadDashboard: Fetching from', url);
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        dashData = await res.json();
+        const payload = await res.json();
+        if (requestSeq !== dashboardRequestSeq) return;
+        dashData = payload;
+        dashboardLoaded = true;
+        dashboardTrace('[DEBUG-FRONTEND] raw API response:', dashData);
         dashboardDebug('[DEBUG-FRONTEND] loadDashboard: Response received:', dashData);
         const stats = dashData.stats || {};
         dashboardDebug('[DEBUG-FRONTEND] Stats:', stats);
