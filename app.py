@@ -2930,7 +2930,8 @@ def api_dashboard():
                 try:
                     m = safe_month(death_date)
                     if m:
-                        monthly_deceased[month_names[m-1]] += 1
+                        month_label = month_names[m-1]
+                        monthly_deceased[month_label] += 1
                 except Exception:
                     pass
         
