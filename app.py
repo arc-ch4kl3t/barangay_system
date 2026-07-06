@@ -2690,8 +2690,10 @@ def api_dashboard():
         hh_filter_from = parse_filter_date(household_from)
         hh_filter_to = parse_filter_date(household_to)
         
+        print('Reached /api/dashboard start')
         ensure_audit_log_schema()
         conn, cursor = get_db()
+        print('Reached database connection')
         debug_log(f"\n[DEBUG][statistics] ===== /api/dashboard START =====")
         debug_log(f"[DEBUG][statistics] Filters: activity={activity!r} gender={gender!r} status={status!r} month={month!r}")
         debug_log(f"[DEBUG][statistics]   date_from={date_from!r} date_to={date_to!r}")
@@ -2699,6 +2701,7 @@ def api_dashboard():
         debug_log(f"[DEBUG][statistics]   household_from={household_from!r} household_to={household_to!r}")
         
         if activity == 'deleted':
+            print("Reached deleted resident statistics")
             cursor.execute("SELECT id, surname FROM households")
             household_names = {str(row['id']): row['surname'] for row in cursor.fetchall()}
             debug_log(f"[DEBUG][statistics] Household names loaded: {len(household_names)} households")
@@ -2748,6 +2751,7 @@ def api_dashboard():
                 item['deleted_at'] = log.get('created_at')
                 residents.append(item)
         else:
+            print("Reached registration statistics")
             # Build resident query with real registration/deceased timestamps from audit logs.
             base_query = """
                 SELECT *
@@ -2853,6 +2857,7 @@ def api_dashboard():
             household_params.append(hh_filter_to)
 
         household_query += " ORDER BY household_name ASC"
+        print('Reached household statistics')
         debug_log(f"[DEBUG][statistics] Households query SQL:\n{household_query}")
         debug_log(f"[DEBUG][statistics] Households query params: {household_params!r}")
         cursor.execute(household_query, household_params)
@@ -2910,6 +2915,7 @@ def api_dashboard():
         monthly_female = {month_names[i-1]: 0 for i in range(1, 13)}
         monthly_deceased = {month_names[i-1]: 0 for i in range(1, 13)}
         
+        print("Reached deceased statistics")
         for r in residents:
             reg_date = r.get('registration_date')
             if reg_date:
@@ -2965,6 +2971,7 @@ def api_dashboard():
             ]
         }
         
+        print('Reached response creation')
         # Top households
         household_counts = {}
         for r in residents:
@@ -3039,8 +3046,9 @@ def api_dashboard():
         
         return jsonify(response)
     except Exception as e:
+        import traceback
         traceback.print_exc()
-        print(f"[ERROR][statistics] /api/dashboard error: {e}")
+        print("Dashboard exception:", repr(e))
         raise
     finally:
         if conn:
