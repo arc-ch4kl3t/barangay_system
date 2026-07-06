@@ -2774,8 +2774,8 @@ def api_dashboard():
                               AND al.target_id = CAST(h.id AS TEXT)
                               AND al.action_type = 'UPDATE'
                               AND (
-                                  al.new_value ILIKE '%"status": "Deceased"%'
-                                  OR al.new_value ILIKE '%"status":"Deceased"%'
+                                  al.new_value ILIKE '%%"status": "Deceased"%%'
+                                  OR al.new_value ILIKE '%%"status":"Deceased"%%'
                               )
                         ) AS date_of_death
                     FROM household h
@@ -2811,6 +2811,12 @@ def api_dashboard():
             
             debug_log(f"[DEBUG][statistics] Residents query SQL:\n{base_query}")
             debug_log(f"[DEBUG][statistics] Residents query params: {params!r}")
+            print("SQL:", base_query)
+            print("PARAMS:", params)
+            print("PARAM COUNT:", len(params))
+            print("PLACEHOLDER COUNT:", base_query.count("%s"))
+            if len(params) != base_query.count("%s"):
+                raise Exception(f"Resident query parameter mismatch: {len(params)} params for {base_query.count('%s')} placeholders")
             cursor.execute(base_query, params)
             residents = cursor.fetchall()
             debug_log(f"[DEBUG][statistics] Residents fetched: {len(residents)} records")
@@ -2860,6 +2866,12 @@ def api_dashboard():
         print('Reached household statistics')
         debug_log(f"[DEBUG][statistics] Households query SQL:\n{household_query}")
         debug_log(f"[DEBUG][statistics] Households query params: {household_params!r}")
+        print("HOUSEHOLD SQL:", household_query)
+        print("HOUSEHOLD PARAMS:", household_params)
+        print("HOUSEHOLD PARAM COUNT:", len(household_params))
+        print("HOUSEHOLD PLACEHOLDER COUNT:", household_query.count("%s"))
+        if len(household_params) != household_query.count("%s"):
+            raise Exception(f"Household query parameter mismatch: {len(household_params)} params for {household_query.count('%s')} placeholders")
         cursor.execute(household_query, household_params)
         households = cursor.fetchall()
         debug_log(f"[DEBUG][statistics] Households fetched: {len(households)} records")
