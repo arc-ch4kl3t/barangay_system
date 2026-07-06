@@ -6,6 +6,7 @@ from docx import Document
 from io import BytesIO
 import json
 import os
+import traceback
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from datetime import datetime, timedelta
 from docx.shared import Inches, Pt
@@ -2888,6 +2889,20 @@ def api_dashboard():
         
         # Monthly registration data - separate by stat type
         month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+        def safe_month(value):
+            if not value:
+                return None
+            if hasattr(value, 'month'):
+                return value.month
+            parts = str(value).split('-')
+            if len(parts) < 2:
+                return None
+            try:
+                m = int(parts[1])
+            except ValueError:
+                return None
+            return m if 1 <= m <= 12 else None
         
         # Initialize counters for each stat type
         monthly_total = {month_names[i-1]: 0 for i in range(1, 13)}
@@ -2899,24 +2914,24 @@ def api_dashboard():
             reg_date = r.get('registration_date')
             if reg_date:
                 try:
-                    m = reg_date.month if hasattr(reg_date, 'month') else int(str(reg_date).split('-')[1])
-                    month_label = month_names[m-1]
-                    
-                    monthly_total[month_label] += 1
-                    
-                    if r.get('gender') == 'Male':
-                        monthly_male[month_label] += 1
-                    elif r.get('gender') == 'Female':
-                        monthly_female[month_label] += 1
-                except:
+                    m = safe_month(reg_date)
+                    if m:
+                        month_label = month_names[m-1]
+                        monthly_total[month_label] += 1
+                        if r.get('gender') == 'Male':
+                            monthly_male[month_label] += 1
+                        elif r.get('gender') == 'Female':
+                            monthly_female[month_label] += 1
+                except Exception:
                     pass
 
             death_date = r.get('date_of_death')
             if r.get('status') == 'Deceased' and death_date:
                 try:
-                    m = death_date.month if hasattr(death_date, 'month') else int(str(death_date).split('-')[1])
-                    monthly_deceased[month_names[m-1]] += 1
-                except:
+                    m = safe_month(death_date)
+                    if m:
+                        monthly_deceased[month_names[m-1]] += 1
+                except Exception:
                     pass
         
         month_data = {
@@ -3023,8 +3038,9 @@ def api_dashboard():
         
         return jsonify(response)
     except Exception as e:
+        traceback.print_exc()
         print(f"[ERROR][statistics] /api/dashboard error: {e}")
-        return jsonify({'error': str(e), 'stats': {}}), 500
+        raise
     finally:
         if conn:
             conn.close()
