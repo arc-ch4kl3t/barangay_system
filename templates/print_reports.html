@@ -1,964 +1,432 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
 {% block content %}
 <div class="reports-page">
+  <div class="reports-header">
+    <div class="reports-header-icon">
+      <i data-lucide="printer" style="width:26px;height:26px;"></i>
+    </div>
+    <div>
+      <span class="breadcrumb">Reports / Print Center</span>
+      <h1>Print Center</h1>
+      <p>Prepare official barangay reports with a Microsoft Word-style workflow and a formal A4 preview.</p>
+    </div>
+  </div>
 
-    <!-- ══════════════════════════
-         PAGE HEADER
-    ══════════════════════════ -->
-    <div class="reports-header">
-        <div class="reports-header-icon">
-            <i data-lucide="printer" style="width:26px;height:26px;"></i>
+  <div class="report-type-tabs">
+    <button class="rtype-tab active" data-panel="residentPanel">
+      <span class="rtype-icon" style="background:#eff6ff; color:#2e86c1;"><i data-lucide="users" style="width:18px;height:18px;"></i></span>
+      <div class="rtype-text"><strong>Resident Reports</strong><span>Demographic and status filters</span></div>
+    </button>
+    <button class="rtype-tab" data-panel="householdPanel">
+      <span class="rtype-icon" style="background:#fff7ed; color:#d97706;"><i data-lucide="home" style="width:18px;height:18px;"></i></span>
+      <div class="rtype-text"><strong>Household Reports</strong><span>Family unit summaries</span></div>
+    </button>
+    <button class="rtype-tab" data-panel="auditPanel">
+      <span class="rtype-icon" style="background:#fff1f2; color:#e11d48;"><i data-lucide="shield-check" style="width:18px;height:18px;"></i></span>
+      <div class="rtype-text"><strong>Audit Log Reports</strong><span>System activity records</span></div>
+    </button>
+  </div>
+
+  <div class="report-workspace">
+    <div class="filter-panel">
+      <div class="print-panel-header">
+        <div>
+          <strong>Print Options</strong>
+          <div class="panel-subtitle">Official document setup</div>
         </div>
-        <div class="reports-header-text">
-            <span class="breadcrumb">Reports / Print Center</span>
-            <h1>Print Reports</h1>
-            <p>Configure filters and preview results before generating your report.</p>
+        <span><i data-lucide="file-text" style="width:14px;height:14px;margin-right:6px;"></i>Word-style</span>
+      </div>
+
+      <div class="control-section">
+        <div class="control-section-title"><i data-lucide="sliders-horizontal" style="width:14px;height:14px;"></i>Page Setup</div>
+        <div class="row g-2">
+          <div class="col-6">
+            <div class="form-group">
+              <label class="form-label">Paper Size</label>
+              <div class="select-wrap">
+                <select class="form-select" id="printPaperSize">
+                  <option value="a4">A4</option>
+                  <option value="letter">Letter</option>
+                  <option value="legal">Legal</option>
+                </select>
+                <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
+              </div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="form-group">
+              <label class="form-label">Orientation</label>
+              <div class="select-wrap">
+                <select class="form-select" id="printOrientation">
+                  <option value="portrait">Portrait</option>
+                  <option value="landscape">Landscape</option>
+                </select>
+                <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
+              </div>
+            </div>
+          </div>
         </div>
+      </div>
+
+      <div class="control-section">
+        <div class="control-section-title"><i data-lucide="list-checks" style="width:14px;height:14px;"></i>Include Options</div>
+        <div class="form-check-group">
+          <label class="form-check-item"><input class="form-check-input" type="checkbox" id="includeLogo" checked><span>Barangay Logo</span></label>
+          <label class="form-check-item"><input class="form-check-input" type="checkbox" id="includeSummary" checked><span>Report Summary</span></label>
+          <label class="form-check-item"><input class="form-check-input" type="checkbox" id="includeSignature" checked><span>Signature Block</span></label>
+          <label class="form-check-item"><input class="form-check-input" type="checkbox" id="includeTimestamp" checked><span>Generation Timestamp</span></label>
+        </div>
+      </div>
+
+      <div class="control-section">
+        <div class="control-section-title"><i data-lucide="file-output" style="width:14px;height:14px;"></i>Output Format</div>
+        <div class="output-options">
+          <label class="output-pill"><input type="radio" name="outputFormat" value="pdf" checked> PDF</label>
+          <label class="output-pill"><input type="radio" name="outputFormat" value="excel"> Excel</label>
+          <label class="output-pill"><input type="radio" name="outputFormat" value="csv"> CSV</label>
+        </div>
+      </div>
+
+      <div id="residentPanel" class="filter-section active-panel">
+        <div class="filter-section-head"><i data-lucide="users" style="width:15px;height:15px;"></i>Resident Filters</div>
+        <form id="residentForm" method="GET" action="{{ url_for('print_all_members') }}">
+          <div class="control-section compact">
+            <div class="form-group">
+              <label class="form-label">Report Type</label>
+              <div class="select-wrap">
+                <select class="form-select" id="res_report_type" name="report_type">
+                  <option value="all">All residents</option>
+                  <option value="registered">Registered by month</option>
+                  <option value="deceased">Deceased by month</option>
+                </select>
+                <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Gender</label>
+              <div class="select-wrap">
+                <select class="form-select" id="res_gender" name="gender">
+                  <option value="">All genders</option>
+                  <option value="Male">Male only</option>
+                  <option value="Female">Female only</option>
+                </select>
+                <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Household</label>
+              <div class="select-wrap">
+                <select class="form-select" id="res_household" name="household_id">
+                  <option value="">All households</option>
+                  {% for household in households %}
+                  <option value="{{ household.id }}">{{ household.surname }}{% if household.house_number %} — House {{ household.house_number }}{% endif %}</option>
+                  {% endfor %}
+                </select>
+                <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
+              </div>
+            </div>
+            <div id="res_month_group" class="form-group" style="display:none;">
+              <label class="form-label">Month</label>
+              <div class="month-grid">
+                {% set months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] %}
+                {% for m in months %}
+                <button type="button" class="month-btn" data-month="{{ loop.index }}">{{ m }}</button>
+                {% endfor %}
+              </div>
+              <button type="button" class="month-btn year-btn" data-month="year" style="grid-column: 1 / -1; margin-top: 8px;">This Year</button>
+              <input type="hidden" id="res_month_val" name="month" value="">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Date Range</label>
+              <div class="row g-2">
+                <div class="col-6"><input type="date" class="form-control form-control-sm" disabled></div>
+                <div class="col-6"><input type="date" class="form-control form-control-sm" disabled></div>
+              </div>
+              <div class="hint-box" id="res_hint"><span>All active and deceased residents will be included. Use filters above to narrow the list.</span></div>
+            </div>
+          </div>
+          <div class="action-grid">
+            <button type="button" class="btn-action btn-action-secondary" onclick="fetchPreview('resident')"><i data-lucide="eye" style="width:14px;height:14px;"></i>Preview Report</button>
+            <button type="submit" class="btn-action btn-action-primary"><i data-lucide="file-text" style="width:14px;height:14px;"></i>Generate PDF</button>
+            <button type="button" class="btn-action btn-action-outline" onclick="setOutputMode('excel'); fetchPreview('resident');"><i data-lucide="sheet" style="width:14px;height:14px;"></i>Export Excel</button>
+            <button type="button" class="btn-action btn-action-ghost" onclick="setOutputMode('csv'); fetchPreview('resident');"><i data-lucide="table-2" style="width:14px;height:14px;"></i>Export CSV</button>
+          </div>
+          <div class="mt-3" style="padding:0 18px 16px;"><button type="button" class="btn btn-sm w-100 btn-outline-secondary" onclick="resetFilters()"><i data-lucide="rotate-ccw" style="width:14px;height:14px;"></i>Reset Filters</button></div>
+        </form>
+      </div>
+
+      <div id="householdPanel" class="filter-section">
+        <div class="filter-section-head"><i data-lucide="home" style="width:15px;height:15px;"></i>Household Filters</div>
+        <form id="householdForm" method="GET" action="{{ url_for('print_households_report') }}">
+          <div class="control-section compact">
+            <div class="form-group">
+              <label class="form-label">Specific Household</label>
+              <div class="select-wrap">
+                <select class="form-select" id="hh_id" name="household_id">
+                  <option value="">All households</option>
+                  {% for household in households %}
+                  <option value="{{ household.id }}">{{ household.surname }}{% if household.house_number %} — House {{ household.house_number }}{% endif %}</option>
+                  {% endfor %}
+                </select>
+                <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
+              </div>
+            </div>
+            <div class="form-group"><label class="form-label">Search Text</label><input id="hh_search" type="text" name="search" placeholder="Surname, house no., or address" class="form-control form-control-sm"></div>
+            <div class="form-group">
+              <label class="form-label">Resident Gender Included</label>
+              <div class="select-wrap">
+                <select class="form-select" id="hh_gender" name="gender">
+                  <option value="">Any gender</option>
+                  <option value="Male">Households with male residents</option>
+                  <option value="Female">Households with female residents</option>
+                </select>
+                <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Resident Status</label>
+              <div class="select-wrap">
+                <select class="form-select" id="hh_status" name="status">
+                  <option value="">Any status</option>
+                  <option value="Active">Households with active residents</option>
+                  <option value="Deceased">Households with deceased residents</option>
+                </select>
+                <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Registration Month</label>
+              <div class="month-grid">
+                {% set months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] %}
+                {% for m in months %}
+                <button type="button" class="month-btn" data-month="{{ loop.index }}">{{ m }}</button>
+                {% endfor %}
+              </div>
+              <button type="button" class="month-btn year-btn" data-month="year" style="grid-column: 1 / -1; margin-top: 8px;">This Year</button>
+              <input type="hidden" id="hh_month_val" name="month" value="">
+            </div>
+          </div>
+          <div class="action-grid">
+            <button type="button" class="btn-action btn-action-secondary" onclick="fetchPreview('household')"><i data-lucide="eye" style="width:14px;height:14px;"></i>Preview Report</button>
+            <button type="submit" class="btn-action btn-action-primary"><i data-lucide="file-text" style="width:14px;height:14px;"></i>Generate PDF</button>
+            <button type="button" class="btn-action btn-action-outline" onclick="setOutputMode('excel'); fetchPreview('household');"><i data-lucide="sheet" style="width:14px;height:14px;"></i>Export Excel</button>
+            <button type="button" class="btn-action btn-action-ghost" onclick="setOutputMode('csv'); fetchPreview('household');"><i data-lucide="table-2" style="width:14px;height:14px;"></i>Export CSV</button>
+          </div>
+          <div class="mt-3" style="padding:0 18px 16px;"><button type="button" class="btn btn-sm w-100 btn-outline-secondary" onclick="resetFilters()"><i data-lucide="rotate-ccw" style="width:14px;height:14px;"></i>Reset Filters</button></div>
+        </form>
+      </div>
+
+      <div id="auditPanel" class="filter-section">
+        <div class="filter-section-head"><i data-lucide="shield-check" style="width:15px;height:15px;"></i>Audit Filters</div>
+        <form id="auditForm" method="GET" action="{{ url_for('print_audit_logs_report') }}">
+          <div class="control-section compact">
+            <div class="form-group">
+              <label class="form-label">Action Type</label>
+              <div class="select-wrap">
+                <select class="form-select" id="audit_action" name="action_type">
+                  <option value="">All actions</option>
+                  <option value="ADD">Added</option>
+                  <option value="UPDATE">Updated</option>
+                  <option value="DELETE">Deleted</option>
+                </select>
+                <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Target Module</label>
+              <div class="select-wrap">
+                <select class="form-select" id="audit_target" name="target_type">
+                  <option value="">All modules</option>
+                  <option value="Resident">Residents</option>
+                  <option value="Household">Households</option>
+                  <option value="System">System</option>
+                </select>
+                <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">User</label>
+              <div class="select-wrap">
+                <select class="form-select" id="audit_user" name="username">
+                  <option value="">All users</option>
+                  {% for user in audit_users %}
+                  <option value="{{ user.username }}">{{ user.username }}</option>
+                  {% endfor %}
+                </select>
+                <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Month</label>
+              <div class="month-grid">
+                {% set months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] %}
+                {% for m in months %}
+                <button type="button" class="month-btn" data-month="{{ loop.index }}">{{ m }}</button>
+                {% endfor %}
+              </div>
+              <button type="button" class="month-btn year-btn" data-month="year" style="grid-column: 1 / -1; margin-top: 8px;">This Year</button>
+              <input type="hidden" id="audit_month_val" name="month" value="">
+            </div>
+          </div>
+          <div class="action-grid">
+            <button type="button" class="btn-action btn-action-secondary" onclick="fetchPreview('audit')"><i data-lucide="eye" style="width:14px;height:14px;"></i>Preview Report</button>
+            <button type="submit" class="btn-action btn-action-primary"><i data-lucide="file-text" style="width:14px;height:14px;"></i>Generate PDF</button>
+            <button type="button" class="btn-action btn-action-outline" onclick="setOutputMode('excel'); fetchPreview('audit');"><i data-lucide="sheet" style="width:14px;height:14px;"></i>Export Excel</button>
+            <button type="button" class="btn-action btn-action-ghost" onclick="setOutputMode('csv'); fetchPreview('audit');"><i data-lucide="table-2" style="width:14px;height:14px;"></i>Export CSV</button>
+          </div>
+          <div class="mt-3" style="padding:0 18px 16px;"><button type="button" class="btn btn-sm w-100 btn-outline-secondary" onclick="resetFilters()"><i data-lucide="rotate-ccw" style="width:14px;height:14px;"></i>Reset Filters</button></div>
+        </form>
+      </div>
     </div>
 
-    <!-- ══════════════════════════
-         REPORT TYPE SELECTOR CARDS
-    ══════════════════════════ -->
-    <div class="report-type-tabs">
-        <button class="rtype-tab active" data-panel="residentPanel">
-            <span class="rtype-icon" style="background:#eff6ff; color:#2e86c1;">
-                <i data-lucide="users" style="width:18px;height:18px;"></i>
-            </span>
-            <div class="rtype-text">
-                <strong>Resident Reports</strong>
-                <span>Demographic & status filters</span>
-            </div>
-        </button>
-        <button class="rtype-tab" data-panel="householdPanel">
-            <span class="rtype-icon" style="background:#fff7ed; color:#d97706;">
-                <i data-lucide="home" style="width:18px;height:18px;"></i>
-            </span>
-            <div class="rtype-text">
-                <strong>Household Reports</strong>
-                <span>Family unit breakdowns</span>
-            </div>
-        </button>
-        <button class="rtype-tab" data-panel="auditPanel">
-            <span class="rtype-icon" style="background:#fff1f2; color:#e11d48;">
-                <i data-lucide="shield-check" style="width:18px;height:18px;"></i>
-            </span>
-            <div class="rtype-text">
-                <strong>Audit Log Reports</strong>
-                <span>Activity & change history</span>
-            </div>
-        </button>
-    </div>
-
-    <!-- ══════════════════════════
-         TWO-COLUMN LAYOUT
-         Left: Filters  |  Right: Live Preview
-    ══════════════════════════ -->
-    <div class="report-workspace">
-
-        <!-- ── FILTER PANEL ── -->
-        <div class="filter-panel">
-
-            <!-- RESIDENT FILTERS -->
-            <div id="residentPanel" class="filter-section active-panel">
-                <div class="filter-section-head">
-                    <i data-lucide="sliders-horizontal" style="width:15px;height:15px;"></i>
-                    <i data-lucide="filter"></i>
-                    Filter Options
-                </div>
-                <form id="residentForm" method="GET" action="{{ url_for('print_all_members') }}">
-
-                    <div class="field">
-                        <label>Report Type</label>
-                        <div class="select-wrap">
-                            <select id="res_report_type" name="report_type">
-                                <option value="all">All residents</option>
-                                <option value="registered">Registered by month</option>
-                                <option value="deceased">Deceased by month</option>
-                            </select>
-                            <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
-                        </div>
-                    </div>
-
-                    <div class="field">
-                        <label>Gender</label>
-                        <div class="select-wrap">
-                            <select id="res_gender" name="gender">
-                                <option value="">All genders</option>
-                                <option value="Male">Male only</option>
-                                <option value="Female">Female only</option>
-                            </select>
-                            <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
-                        </div>
-                    </div>
-
-                    <div class="field">
-                        <label>Household</label>
-                        <div class="select-wrap">
-                            <select id="res_household" name="household_id">
-                                <option value="">All households</option>
-                                {% for household in households %}
-                                <option value="{{ household.id }}">{{ household.surname }}{% if household.house_number %} — House {{ household.house_number }}{% endif %}</option>
-                                {% endfor %}
-                            </select>
-                            <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
-                        </div>
-                    </div>
-
-                    <div id="res_month_group" class="field" style="display:none;">
-                        <label>Month</label>
-                        <div class="month-grid">
-                            {% set months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] %}
-                            {% for m in months %}
-                            <button type="button" class="month-btn" data-month="{{ loop.index }}">{{ m }}</button>
-                            {% endfor %}
-                        </div>
-                        <button type="button" class="month-btn year-btn" data-month="year" style="grid-column: 1 / -1; margin-top: 8px;">This Year</button>
-                        <input type="hidden" id="res_month_val" name="month" value="">
-                    </div>
-
-                    <div class="hint-box" id="res_hint">
-                        <i data-lucide="info" style="width:13px;height:13px;flex-shrink:0;"></i>
-                        <span>All active and deceased residents will be included. Use filters above to narrow the list.</span>
-                    </div>
-
-                    <div class="filter-actions">
-                        <button type="button" class="btn-preview" onclick="fetchPreview('resident')">
-                            <i data-lucide="eye" style="width:14px;height:14px;"></i>
-                            Preview
-                        </button>
-                        <button type="submit" class="btn-generate">
-                            <i data-lucide="printer" style="width:14px;height:14px;"></i>
-                            Generate Report
-                        </button>
-                    </div>
-                </form>
-            </div>
-
-            <!-- HOUSEHOLD FILTERS -->
-            <div id="householdPanel" class="filter-section">
-                <div class="filter-section-head">
-                    <i data-lucide="sliders-horizontal" style="width:15px;height:15px;"></i>
-                    Filter Options
-                </div>
-                <form id="householdForm" method="GET" action="{{ url_for('print_households_report') }}">
-
-                    <div class="field">
-                        <label>Specific Household</label>
-                        <div class="select-wrap">
-                            <select id="hh_id" name="household_id">
-                                <option value="">All households</option>
-                                {% for household in households %}
-                                <option value="{{ household.id }}">{{ household.surname }}{% if household.house_number %} — House {{ household.house_number }}{% endif %}</option>
-                                {% endfor %}
-                            </select>
-                            <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
-                        </div>
-                    </div>
-
-                    <div class="field">
-                        <label>Search Text</label>
-                        <input id="hh_search" type="text" name="search" placeholder="Surname, house no., or address" class="text-input">
-                    </div>
-
-                    <div class="field">
-                        <label>Resident Gender Included</label>
-                        <div class="select-wrap">
-                            <select id="hh_gender" name="gender">
-                                <option value="">Any gender</option>
-                                <option value="Male">Households with male residents</option>
-                                <option value="Female">Households with female residents</option>
-                            </select>
-                            <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
-                        </div>
-                    </div>
-
-                    <div class="field">
-                        <label>Resident Status</label>
-                        <div class="select-wrap">
-                            <select id="hh_status" name="status">
-                                <option value="">Any status</option>
-                                <option value="Active">Households with active residents</option>
-                                <option value="Deceased">Households with deceased residents</option>
-                            </select>
-                            <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
-                        </div>
-                    </div>
-
-                    <div class="field">
-                        <label>Registration Month</label>
-                        <div class="month-grid">
-                            {% set months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] %}
-                            {% for m in months %}
-                            <button type="button" class="month-btn" data-month="{{ loop.index }}">{{ m }}</button>
-                            {% endfor %}
-                        </div>
-                        <button type="button" class="month-btn year-btn" data-month="year" style="grid-column: 1 / -1; margin-top: 8px;">This Year</button>
-                        <input type="hidden" id="hh_month_val" name="month" value="">
-                    </div>
-
-                    <div class="hint-box">
-                        <i data-lucide="info" style="width:13px;height:13px;flex-shrink:0;"></i>
-                        <span>Registration dates are pulled from the audit log entry when the household was first created.</span>
-                    </div>
-
-                    <div class="filter-actions">
-                        <button type="button" class="btn-preview" onclick="fetchPreview('household')">
-                            <i data-lucide="eye" style="width:14px;height:14px;"></i>
-                            Preview
-                        </button>
-                        <button type="submit" class="btn-generate">
-                            <i data-lucide="printer" style="width:14px;height:14px;"></i>
-                            Generate Report
-                        </button>
-                    </div>
-                </form>
-            </div>
-
-            <!-- AUDIT FILTERS -->
-            <div id="auditPanel" class="filter-section">
-                <div class="filter-section-head">
-                    <i data-lucide="sliders-horizontal" style="width:15px;height:15px;"></i>
-                    Filter Options
-                </div>
-                <form id="auditForm" method="GET" action="{{ url_for('print_audit_logs_report') }}">
-
-                    <div class="field">
-                        <label>Action Type</label>
-                        <div class="select-wrap">
-                            <select id="audit_action" name="action_type">
-                                <option value="">All actions</option>
-                                <option value="ADD">Added</option>
-                                <option value="UPDATE">Updated</option>
-                                <option value="DELETE">Deleted</option>
-                            </select>
-                            <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
-                        </div>
-                    </div>
-
-                    <div class="field">
-                        <label>Target Module</label>
-                        <div class="select-wrap">
-                            <select id="audit_target" name="target_type">
-                                <option value="">All modules</option>
-                                <option value="Resident">Residents</option>
-                                <option value="Household">Households</option>
-                                <option value="System">System</option>
-                            </select>
-                            <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
-                        </div>
-                    </div>
-
-                    <div class="field">
-                        <label>User</label>
-                        <div class="select-wrap">
-                            <select id="audit_user" name="username">
-                                <option value="">All users</option>
-                                {% for user in audit_users %}
-                                <option value="{{ user.username }}">{{ user.username }}</option>
-                                {% endfor %}
-                            </select>
-                            <i data-lucide="chevron-down" style="width:13px;height:13px;"></i>
-                        </div>
-                    </div>
-
-                    <div class="field">
-                        <label>Month</label>
-                        <div class="month-grid">
-                            {% set months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] %}
-                            {% for m in months %}
-                            <button type="button" class="month-btn" data-month="{{ loop.index }}">{{ m }}</button>
-                            {% endfor %}
-                        </div>
-                        <button type="button" class="month-btn year-btn" data-month="year" style="grid-column: 1 / -1; margin-top: 8px;">This Year</button>
-                        <input type="hidden" id="audit_month_val" name="month" value="">
-                    </div>
-
-                    <div class="hint-box">
-                        <i data-lucide="info" style="width:13px;height:13px;flex-shrink:0;"></i>
-                        <span>Use this to print a record of who added, updated, or deleted data — useful for filing and compliance.</span>
-                    </div>
-
-                    <div class="filter-actions">
-                        <button type="button" class="btn-preview" onclick="fetchPreview('audit')">
-                            <i data-lucide="eye" style="width:14px;height:14px;"></i>
-                            Preview
-                        </button>
-                        <button type="submit" class="btn-generate">
-                            <i data-lucide="printer" style="width:14px;height:14px;"></i>
-                            Generate Report
-                        </button>
-                    </div>
-                </form>
-            </div>
-
-        </div><!-- .filter-panel -->
-
-        <!-- ── LIVE PREVIEW PANEL ── -->
-        <div class="preview-panel">
-            <div class="preview-header">
-                <div class="preview-header-left">
-                    <i data-lucide="eye" style="width:15px;height:15px;"></i>
-                    Live Preview
-                </div>
-                <span class="preview-count" id="previewCount">—</span>
-            </div>
-
-            <div id="previewBody" class="preview-body">
-                <div class="preview-empty">
-                    <div class="preview-empty-icon">
-                        <i data-lucide="file-search" style="width:36px;height:36px;"></i>
-                    </div>
-                    <p>Click <strong>Preview</strong> to see what will be included in your report based on the current filters.</p>
-                </div>
-            </div>
-
-            <div class="preview-footer" id="previewFooter" style="display:none;">
-                <span id="previewFooterText"></span>
-            </div>
+    <div class="preview-panel">
+      <div class="preview-header">
+        <div class="preview-header-left"><i data-lucide="eye" style="width:15px;height:15px;"></i>Official Document Preview</div>
+        <span class="preview-count" id="previewCount">—</span>
+      </div>
+      <div id="previewBody" class="preview-body">
+        <div class="preview-empty">
+          <div class="preview-empty-icon"><i data-lucide="file-search" style="width:38px;height:38px;"></i></div>
+          <p>Adjust the print options and filters to build a formal barangay report preview.</p>
         </div>
-
-    </div><!-- .report-workspace -->
+      </div>
+      <div class="preview-footer" id="previewFooter" style="display:none;"><span id="previewFooterText"></span></div>
+    </div>
+  </div>
 </div>
 
 <style>
-:root {
-    --navy:       #1B3A57;
-    --navy-mid:   #1e4d7b;
-    --blue:       #2e86c1;
-    --blue-light: #3498db;
-    --bg:         #eef1f6;
-    --card:       #ffffff;
-    --border:     #dde3ed;
-    --text-mid:   #3d5a75;
-    --text-muted: #7a93aa;
-    --green:      #10b981;
-}
-
-*, *::before, *::after { box-sizing: border-box; }
-
-[data-lucide] { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; line-height: 1; }
-
-.reports-page {
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 32px 40px 72px;
-    font-family: 'Segoe UI', system-ui, sans-serif;
-    color: var(--navy);
-    background: var(--bg);
-    min-height: 100vh;
-}
-
-/* ── PAGE HEADER ── */
-.reports-header {
-    display: flex; align-items: center; gap: 18px;
-    background: var(--navy);
-    border-radius: 16px;
-    padding: 28px 32px;
-    margin-bottom: 24px;
-    box-shadow: 0 4px 20px rgba(27,58,87,0.18);
-}
-
-.reports-header-icon {
-    width: 52px; height: 52px; border-radius: 13px;
-    background: rgba(255,255,255,0.15);
-    color: #fff;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-}
-
-.breadcrumb {
-    display: block;
-    font-size: 10px; font-weight: 800;
-    text-transform: uppercase; letter-spacing: 1px;
-    color: rgba(255,255,255,0.55);
-    margin-bottom: 4px;
-}
-
-.reports-header h1 {
-    margin: 0 0 4px;
-    font-size: 24px; font-weight: 800;
-    color: #fff; letter-spacing: -0.3px;
-}
-
-.reports-header p { margin: 0; font-size: 13px; color: rgba(255,255,255,0.60); }
-
-/* ── REPORT TYPE TABS ── */
-.report-type-tabs {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
-    margin-bottom: 24px;
-}
-
-.rtype-tab {
-    display: flex; align-items: center; gap: 14px;
-    padding: 16px 20px;
-    background: var(--card);
-    border: 2px solid var(--border);
-    border-radius: 14px;
-    cursor: pointer;
-    transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
-    text-align: left;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-}
-
-.rtype-tab:hover {
-    border-color: #93c5fd;
-    box-shadow: 0 4px 16px rgba(27,58,87,0.08);
-}
-
-.rtype-tab.active {
-    border-color: var(--blue-light);
-    background: #f0f9ff;
-    box-shadow: 0 0 0 3px rgba(52,152,219,0.12), 0 4px 16px rgba(27,58,87,0.08);
-}
-
-.rtype-icon {
-    width: 40px; height: 40px; border-radius: 10px;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-}
-
-.rtype-text { min-width: 0; }
-.rtype-text strong { display: block; font-size: 13px; font-weight: 800; color: var(--navy); }
-.rtype-text span   { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-
-/* ── WORKSPACE (side-by-side) ── */
-.report-workspace {
-    display: grid;
-    grid-template-columns: 360px 1fr;
-    gap: 20px;
-    align-items: start;
-}
-
-/* ── FILTER PANEL ── */
-.filter-panel {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    box-shadow: 0 2px 10px rgba(27,58,87,0.06);
-    overflow: hidden;
-}
-
-.filter-section { display: none; }
-.filter-section.active-panel { display: block; }
-
-.filter-section-head {
-    display: flex; align-items: center; gap: 8px;
-    padding: 16px 22px;
-    background: #f5f8fc;
-    border-bottom: 1px solid var(--border);
-    font-size: 11px; font-weight: 800;
-    text-transform: uppercase; letter-spacing: 0.7px;
-    color: var(--navy);
-}
-
-/* form fields */
-.filter-section form { padding: 20px 22px 24px; }
-
-.field {
-    display: flex; flex-direction: column; gap: 7px;
-    margin-bottom: 16px;
-}
-
-.field:last-child { margin-bottom: 0; }
-
-.field label {
-    font-size: 10px; font-weight: 800;
-    text-transform: uppercase; letter-spacing: 0.6px;
-    color: var(--text-mid);
-}
-
-.label-opt { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--text-muted); }
-
-.select-wrap { position: relative; display: flex; align-items: center; }
-
-.select-wrap select {
-    width: 100%; padding: 9px 32px 9px 12px;
-    border: 1.5px solid var(--border); border-radius: 9px;
-    font-family: inherit; font-size: 13px; font-weight: 500;
-    color: var(--navy); background: #f8fafc;
-    appearance: none; cursor: pointer;
-    transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-.select-wrap select:focus {
-    outline: none; border-color: var(--blue-light);
-    box-shadow: 0 0 0 3px rgba(52,152,219,0.10);
-}
-
-.select-wrap [data-lucide] {
-    position: absolute; right: 10px;
-    color: var(--text-muted); pointer-events: none;
-}
-
-.text-input {
-    width: 100%; padding: 9px 12px;
-    border: 1.5px solid var(--border); border-radius: 9px;
-    font-family: inherit; font-size: 13px; font-weight: 500;
-    color: var(--navy); background: #f8fafc;
-    transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-.text-input:focus {
-    outline: none; border-color: var(--blue-light);
-    box-shadow: 0 0 0 3px rgba(52,152,219,0.10);
-}
-
-/* Month pill grid */
-.month-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
-}
-
-.month-btn {
-    padding: 7px 4px;
-    background: #f5f8fc;
-    border: 1.5px solid var(--border); border-radius: 8px;
-    font-family: inherit; font-size: 11px; font-weight: 700;
-    color: var(--text-mid); cursor: pointer;
-    transition: background 0.15s, border-color 0.15s, color 0.15s;
-}
-
-.month-btn:hover { background: #e0eaf5; border-color: #93c5fd; color: var(--navy); }
-
-.month-btn.selected {
-    background: var(--navy); border-color: var(--navy);
-    color: #fff;
-}
-
-/* Date pair */
-.date-pair {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
-}
-
-.date-pair input {
-    width: 100%; padding: 9px 10px;
-    border: 1.5px solid var(--border); border-radius: 9px;
-    font-family: inherit; font-size: 12px;
-    color: var(--navy); background: #f8fafc;
-    transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-.date-pair input:focus {
-    outline: none; border-color: var(--blue-light);
-    box-shadow: 0 0 0 3px rgba(52,152,219,0.10);
-}
-
-/* Hint box */
-.hint-box {
-    display: flex; align-items: flex-start; gap: 8px;
-    background: #f0f9ff;
-    border: 1px solid #bfdbfe;
-    border-radius: 9px;
-    padding: 11px 13px;
-    font-size: 12px; color: #1e40af;
-    line-height: 1.5;
-    margin-bottom: 18px;
-}
-
-/* filter actions */
-.filter-actions {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
-}
-
-.btn-preview {
-    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-    padding: 10px 16px;
-    background: #f0f9ff; color: var(--blue);
-    border: 1.5px solid #bfdbfe; border-radius: 9px;
-    font-family: inherit; font-size: 12px; font-weight: 700;
-    cursor: pointer; transition: background 0.2s, border-color 0.2s;
-    white-space: nowrap;
-}
-
-.btn-preview:hover { background: #e0f2fe; border-color: var(--blue); }
-
-.btn-generate {
-    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-    padding: 10px 16px;
-    background: var(--navy); color: #fff;
-    border: none; border-radius: 9px;
-    font-family: inherit; font-size: 12px; font-weight: 700;
-    cursor: pointer; transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
-    white-space: nowrap;
-}
-
-.btn-generate:hover {
-    background: var(--navy-mid); transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(27,58,87,0.22);
-}
-
-/* ── PREVIEW PANEL ── */
-.preview-panel {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    box-shadow: 0 2px 10px rgba(27,58,87,0.06);
-    overflow: hidden;
-    display: flex; flex-direction: column;
-    min-height: 520px;
-}
-
-.preview-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 16px 24px;
-    background: var(--navy);
-    flex-shrink: 0;
-}
-
-.preview-header-left {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 11px; font-weight: 800;
-    text-transform: uppercase; letter-spacing: 0.7px;
-    color: rgba(255,255,255,0.80);
-}
-
-.preview-count {
-    font-size: 11px; font-weight: 700;
-    background: rgba(255,255,255,0.15);
-    color: #fff; padding: 3px 10px;
-    border-radius: 20px; letter-spacing: 0.3px;
-}
-
-.preview-body {
-    flex: 1; overflow-y: auto;
-}
-
-/* empty state */
-.preview-empty {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 64px 32px; gap: 16px; text-align: center;
-}
-
-.preview-empty-icon {
-    width: 72px; height: 72px; border-radius: 18px;
-    background: #f0f9ff; color: var(--blue);
-    display: flex; align-items: center; justify-content: center;
-}
-
-.preview-empty p {
-    font-size: 13px; color: var(--text-muted); max-width: 280px; line-height: 1.6;
-}
-
-/* loading state */
-.preview-loading {
-    display: flex; align-items: center; justify-content: center;
-    padding: 64px 32px; gap: 12px;
-    color: var(--text-muted); font-size: 13px; font-weight: 600;
-}
-
-@keyframes spin { to { transform: rotate(360deg); } }
-.spin-icon { animation: spin 0.8s linear infinite; }
-
-/* preview table */
-.preview-table-wrap { overflow-x: auto; }
-
-.preview-table {
-    width: 100%; border-collapse: collapse; font-size: 12px;
-    min-width: 500px;
-}
-
-.preview-table thead tr { background: #f5f8fc; }
-
-.preview-table th {
-    padding: 10px 16px; text-align: left;
-    font-size: 10px; font-weight: 800;
-    text-transform: uppercase; letter-spacing: 0.7px;
-    color: var(--text-mid);
-    border-bottom: 2px solid var(--border); white-space: nowrap;
-}
-
-.preview-table td {
-    padding: 11px 16px;
-    border-bottom: 1px solid #eef1f6;
-    color: #334155; vertical-align: middle; white-space: nowrap;
-}
-
-.preview-table tbody tr:last-child td { border-bottom: none; }
-.preview-table tbody tr:hover td { background: #f8fafc; }
-
-.td-name   { font-weight: 700; color: var(--navy); }
-.td-badge  { display: inline-block; padding: 3px 9px; border-radius: 20px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
-.badge-active   { background: #dcfce7; color: #15803d; }
-.badge-deceased { background: #fee2e2; color: #b91c1c; }
-.badge-male     { background: #eff6ff; color: #2e86c1; }
-.badge-female   { background: #fff1f2; color: #c0392b; }
-.badge-add      { background: #dcfce7; color: #15803d; }
-.badge-update   { background: #fef9c3; color: #854d0e; }
-.badge-delete   { background: #fee2e2; color: #b91c1c; }
-
-.td-muted { color: var(--text-muted); font-size: 11px; }
-
-/* preview footer */
-.preview-footer {
-    padding: 12px 24px;
-    border-top: 1px solid var(--border);
-    background: #f8fafc;
-    font-size: 11px; font-weight: 600; color: var(--text-muted);
-    flex-shrink: 0;
-}
-
-/* ── RESPONSIVE ── */
-@media (max-width: 1100px) {
-    .report-workspace { grid-template-columns: 1fr; }
-    .preview-panel { min-height: 400px; }
-}
-
-@media (max-width: 820px) {
-    .reports-page { padding: 20px 16px 52px; }
-    .report-type-tabs { grid-template-columns: 1fr; }
-}
+:root { --navy:#1B3A57; --navy-mid:#1e4d7b; --blue:#2e86c1; --blue-light:#3498db; --card:#fff; --border:#dce5ee; --text-mid:#3d5a75; --text-muted:#7a93aa; }
+* { box-sizing:border-box; }
+[data-lucide] { display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; line-height:1; }
+.reports-page { max-width:1520px; margin:0 auto; padding:28px 30px 70px; font-family:'Segoe UI',system-ui,sans-serif; color:var(--navy); background:linear-gradient(135deg,#f6f9fc 0%,#edf3f8 100%); min-height:100vh; }
+.reports-header { display:flex; align-items:center; gap:18px; background:linear-gradient(90deg,var(--navy) 0%,#214d6d 100%); border-radius:18px; padding:24px 28px; margin-bottom:20px; box-shadow:0 12px 32px rgba(27,58,87,.16); }
+.reports-header-icon { width:54px;height:54px;border-radius:16px;background:rgba(255,255,255,.16);color:#fff;display:flex;align-items:center;justify-content:center; }
+.breadcrumb { display:block;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,.6);margin-bottom:4px; }
+.reports-header h1 { margin:0 0 4px;font-size:24px;font-weight:800;color:#fff; }
+.reports-header p { margin:0;font-size:13px;color:rgba(255,255,255,.72); }
+.report-type-tabs { display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px; }
+.rtype-tab { display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--card);border:1px solid var(--border);border-radius:14px;cursor:pointer;box-shadow:0 6px 18px rgba(27,58,87,.04);transition:all .2s ease; }
+.rtype-tab:hover { border-color:#93c5fd; transform:translateY(-1px); }
+.rtype-tab.active { border-color:var(--blue-light); background:#f3f9ff; box-shadow:0 0 0 3px rgba(52,152,219,.12); }
+.rtype-icon { width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+.rtype-text strong { display:block;font-size:13px;font-weight:800;color:var(--navy); }
+.rtype-text span { display:block;font-size:11px;color:var(--text-muted);margin-top:2px; }
+.report-workspace { display:grid;grid-template-columns:minmax(340px,430px) minmax(0,1fr);gap:18px;align-items:start; }
+.filter-panel,.preview-panel { background:var(--card);border:1px solid var(--border);border-radius:20px;box-shadow:0 10px 30px rgba(27,58,87,.07); }
+.filter-panel { overflow:hidden; }
+.print-panel-header { display:flex;align-items:center;justify-content:space-between;padding:16px 18px 12px;border-bottom:1px solid #eef2f7;background:#f9fbfe; }
+.print-panel-header strong { display:block;font-size:14px;color:var(--navy); }
+.panel-subtitle { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.8px;margin-top:2px; }
+.print-panel-header span { font-size:11px;color:var(--text-mid);display:flex;align-items:center;text-transform:uppercase;letter-spacing:.8px; }
+.control-section { padding:14px 18px 0; }
+.control-section.compact { padding-top:0; }
+.control-section-title { display:flex;align-items:center;gap:8px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.8px;color:var(--navy);margin-bottom:10px; }
+.form-group { margin-bottom:12px; }
+.form-label { display:block;font-size:11px;font-weight:700;color:var(--text-mid);text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px; }
+.form-select,.form-control { border:1px solid #dbe5ef;border-radius:10px;background:#f8fbfe;color:var(--navy);font-size:13px; }
+.form-select:focus,.form-control:focus { border-color:var(--blue-light); box-shadow:0 0 0 3px rgba(52,152,219,.12); }
+.select-wrap { position:relative;display:flex;align-items:center; }
+.select-wrap select { width:100%;padding:10px 36px 10px 12px;appearance:none;cursor:pointer;background:#f8fbfe;border:1px solid #dbe5ef;border-radius:10px;color:var(--navy);font-size:13px;font-weight:600; }
+.select-wrap [data-lucide] { position:absolute;right:10px;color:var(--text-muted);pointer-events:none; }
+.form-check-group { display:grid;gap:8px; }
+.form-check-item { display:flex;align-items:center;gap:8px;background:#f8fbfe;border:1px solid #e4ebf3;border-radius:10px;padding:8px 10px;font-size:13px;color:var(--navy); }
+.form-check-item input { accent-color:var(--blue);width:15px;height:15px; }
+.output-options { display:flex;gap:8px;flex-wrap:wrap; }
+.output-pill { display:inline-flex;align-items:center;gap:6px;padding:8px 10px;border-radius:999px;font-size:12px;font-weight:700;color:var(--text-mid);background:#f5f8fc;border:1px solid #dce7f2; }
+.output-pill input { accent-color:var(--blue); }
+.filter-section { display:none; }
+.filter-section.active-panel { display:block; }
+.filter-section-head { display:flex;align-items:center;gap:8px;padding:12px 18px 8px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.8px;color:var(--navy); }
+.month-grid { display:grid;grid-template-columns:repeat(4,1fr);gap:6px; }
+.month-btn { padding:7px 4px;background:#f5f8fc;border:1px solid #dbe5ef;border-radius:8px;font-size:11px;font-weight:700;color:var(--text-mid);cursor:pointer;transition:all .15s ease; }
+.month-btn:hover { background:#e7f3ff;border-color:#93c5fd;color:var(--navy); }
+.month-btn.selected { background:var(--navy);border-color:var(--navy);color:#fff; }
+.hint-box { margin-top:8px;background:#f4f8fc;border:1px solid #dce7f2;border-radius:10px;padding:10px 12px;color:#45627a;font-size:12px;line-height:1.45; }
+.action-grid { display:grid;grid-template-columns:1fr 1fr;gap:9px;padding:0 18px 0;margin-top:10px; }
+.btn-action { display:inline-flex;align-items:center;justify-content:center;gap:7px;border:none;border-radius:10px;padding:10px 12px;font-size:12px;font-weight:700;cursor:pointer;transition:all .18s ease;white-space:nowrap; }
+.btn-action:hover { transform:translateY(-1px); }
+.btn-action-primary { background:var(--navy);color:#fff; }
+.btn-action-primary:hover { background:var(--navy-mid);box-shadow:0 8px 20px rgba(27,58,87,.18); }
+.btn-action-secondary { background:#eaf4ff;color:var(--blue);border:1px solid #cfe7ff; }
+.btn-action-secondary:hover { background:#dceeff; }
+.btn-action-outline { background:#fff;color:var(--text-mid);border:1px solid #dce7f2; }
+.btn-action-outline:hover { background:#f6f9fc;color:var(--navy); }
+.btn-action-ghost { background:#f8fbfe;color:var(--text-muted);border:1px dashed #dce7f2; }
+.btn-action-ghost:hover { color:var(--navy); }
+.preview-panel { display:flex;flex-direction:column;min-height:650px;overflow:hidden; }
+.preview-header { display:flex;align-items:center;justify-content:space-between;padding:16px 20px;background:linear-gradient(90deg,#182f46 0%,#24486a 100%);color:#fff;flex-shrink:0; }
+.preview-header-left { display:flex;align-items:center;gap:8px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.8px; }
+.preview-count { background:rgba(255,255,255,.15);border-radius:999px;padding:4px 9px;font-size:11px;font-weight:700; }
+.preview-body { flex:1;padding:20px;display:flex;align-items:center;justify-content:center;overflow:auto;background:linear-gradient(180deg,#f4f7fa 0%,#edf2f7 100%); }
+.preview-empty { display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;max-width:330px;gap:12px;color:var(--text-muted); }
+.preview-empty-icon { width:72px;height:72px;border-radius:20px;background:#e9f3ff;color:var(--blue);display:flex;align-items:center;justify-content:center; }
+.paper-shell { width:100%;display:flex;justify-content:center; }
+.document-sheet { width:min(100%,760px);padding:14px;border-radius:14px;background:rgba(255,255,255,.72);box-shadow:inset 0 1px 0 rgba(255,255,255,.8),0 15px 40px rgba(27,58,87,.12); }
+.document-paper { background:#fff;border:1px solid #e7ecf3;box-shadow:0 8px 24px rgba(15,23,42,.12);padding:24px 28px 20px;color:#11263a;min-height:100%; }
+.document-paper[data-size="a4"][data-orientation="portrait"] { aspect-ratio:210/297; }
+.document-paper[data-size="a4"][data-orientation="landscape"] { aspect-ratio:297/210; }
+.document-paper[data-size="letter"][data-orientation="portrait"] { aspect-ratio:8.5/11; }
+.document-paper[data-size="letter"][data-orientation="landscape"] { aspect-ratio:11/8.5; }
+.document-paper[data-size="legal"][data-orientation="portrait"] { aspect-ratio:8.5/14; }
+.document-paper[data-size="legal"][data-orientation="landscape"] { aspect-ratio:14/8.5; }
+.document-head { display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:10px; }
+.document-brand { display:flex;align-items:center;gap:10px;min-width:140px; }
+.document-logo { width:58px;height:58px;border:1px dashed #b7c7d6;border-radius:14px;display:flex;align-items:center;justify-content:center;color:#4a6c84;background:#f7fafc;font-size:11px;font-weight:700;text-align:center;line-height:1.15;padding:4px; }
+.document-kicker { font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:#5d7488;margin-bottom:2px; }
+.document-barangay { font-weight:800;color:var(--navy);font-size:14px;margin-top:2px; }
+.document-address { text-align:right;font-size:12px;color:#45627a;line-height:1.45; }
+.document-title { text-align:center;font-size:17px;font-weight:800;text-transform:uppercase;letter-spacing:.8px;color:var(--navy);margin:8px 0 12px; }
+.document-meta { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px; }
+.document-meta-item { background:#f8fbfe;border:1px solid #e6edf4;border-radius:9px;padding:8px 10px; }
+.document-meta-item span { display:block;font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--text-muted);margin-bottom:3px; }
+.document-meta-item strong { font-size:12px;color:var(--navy); }
+.document-divider { border-top:2px solid #0f2f46;margin:10px 0 12px; }
+.document-summary { font-size:12px;color:#45627a;margin-bottom:10px;line-height:1.5; }
+.document-table-wrap { overflow:hidden;border:1px solid #e0e7ef;border-radius:10px; }
+.document-table { width:100%;border-collapse:collapse;font-size:11px; }
+.document-table thead th { background:#f5f8fc;color:var(--navy);text-transform:uppercase;letter-spacing:.6px;font-weight:700;padding:8px 10px;border-bottom:1px solid #e0e7ef;text-align:left; }
+.document-table tbody td { padding:8px 10px;border-bottom:1px solid #f1f4f8;color:#334155; }
+.document-table tbody tr:last-child td { border-bottom:none; }
+.document-table .status-badge { display:inline-flex;align-items:center;padding:3px 8px;border-radius:999px;font-size:10px;font-weight:700; }
+.status-active { background:#dcfce7;color:#15803d; }
+.status-deceased { background:#fee2e2;color:#b91c1c; }
+.status-male { background:#eff6ff;color:#2e86c1; }
+.status-female { background:#fff1f2;color:#c0392b; }
+.document-signature { margin-top:14px;font-size:11px;color:#5d7488; }
+.document-footer { display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:12px;border-top:1px solid #e6edf4;font-size:10px;color:#5d7488;text-transform:uppercase;letter-spacing:.7px; }
+.preview-footer { padding:12px 20px;border-top:1px solid #eef2f7;background:#f8fbfe;font-size:11px;color:var(--text-muted); }
+@media (max-width:1200px){ .report-workspace{grid-template-columns:1fr;} .preview-panel{min-height:520px;} }
+@media (max-width:780px){ .reports-page{padding:18px 14px 46px;} .reports-header{padding:20px 18px;align-items:flex-start;} .report-type-tabs{grid-template-columns:1fr;} .document-meta{grid-template-columns:1fr;} .action-grid{grid-template-columns:1fr;} .preview-body{padding:14px;} .document-paper{padding:18px 18px 20px;} }
 </style>
 
 <script>
-/* ═══════════════════════════════════
-   TAB SWITCHING
-═══════════════════════════════════ */
 const typeTabs = document.querySelectorAll('.rtype-tab');
-const panels   = document.querySelectorAll('.filter-section');
-
-typeTabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-        typeTabs.forEach(t => t.classList.remove('active'));
-        panels.forEach(p => p.classList.remove('active-panel'));
-        tab.classList.add('active');
-        document.getElementById(tab.dataset.panel).classList.add('active-panel');
-
-        // reset preview
-        resetPreview();
-    });
-});
-
-/* ═══════════════════════════════════
-   MONTH PILL LOGIC
-   Each month-grid is independent.
-   Clicking a pill toggles selection and writes to the hidden input.
-   Supports "This Year" button.
-═══════════════════════════════════ */
-document.querySelectorAll('.filter-section').forEach(section => {
-    const hiddenInput = section.querySelector('input[type="hidden"][name="month"]');
-    if (!hiddenInput) return;
-
-    section.querySelectorAll('.month-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            const alreadySelected = btn.classList.contains('selected');
-            // deselect all in this group
-            section.querySelectorAll('.month-btn').forEach(b => b.classList.remove('selected'));
-            if (!alreadySelected) {
-                btn.classList.add('selected');
-                hiddenInput.value = btn.dataset.month;
-            } else {
-                hiddenInput.value = '';
-            }
-        });
-    });
-});
-
-/* ═══════════════════════════════════
-   RESIDENT REPORT TYPE → show/hide month group + update hint
-═══════════════════════════════════ */
-function refreshResidentUI() {
-    const type      = document.getElementById('res_report_type')?.value;
-    const monthGrp  = document.getElementById('res_month_group');
-    const hint      = document.getElementById('res_hint');
-    if (!monthGrp || !hint) return;
-
-    const needsMonth = type === 'registered' || type === 'deceased';
-    monthGrp.style.display = needsMonth ? 'flex' : 'none';
-
-    const msgs = {
-        all:        'All active and deceased residents will be included. Use filters above to narrow the list.',
-        registered: 'Results are filtered by the date the resident was registered in the system (from audit log).',
-        deceased:   'Results are filtered by the date the resident\'s status was changed to Deceased (from audit log).'
-    };
-
-    hint.querySelector('span').textContent = msgs[type] || msgs.all;
-}
-
-document.getElementById('res_report_type')?.addEventListener('change', refreshResidentUI);
+const panels = document.querySelectorAll('.filter-section');
+function getActiveReportType(){ const activeTab=document.querySelector('.rtype-tab.active'); if(!activeTab) return 'resident'; if(activeTab.dataset.panel==='householdPanel') return 'household'; if(activeTab.dataset.panel==='auditPanel') return 'audit'; return 'resident'; }
+typeTabs.forEach(tab=>{ tab.addEventListener('click',()=>{ typeTabs.forEach(t=>t.classList.remove('active')); panels.forEach(p=>p.classList.remove('active-panel')); tab.classList.add('active'); document.getElementById(tab.dataset.panel).classList.add('active-panel'); resetPreview(); schedulePreview(); }); });
+document.querySelectorAll('.filter-section').forEach(section=>{ const hiddenInput=section.querySelector('input[type="hidden"][name="month"]'); if(!hiddenInput) return; section.querySelectorAll('.month-btn').forEach(btn=>{ btn.addEventListener('click',(e)=>{ e.preventDefault(); const alreadySelected=btn.classList.contains('selected'); section.querySelectorAll('.month-btn').forEach(b=>b.classList.remove('selected')); if(!alreadySelected){ btn.classList.add('selected'); hiddenInput.value=btn.dataset.month; } else { hiddenInput.value=''; } schedulePreview(); }); }); });
+function refreshResidentUI(){ const type=document.getElementById('res_report_type')?.value; const monthGrp=document.getElementById('res_month_group'); const hint=document.getElementById('res_hint'); if(!monthGrp||!hint) return; const needsMonth=type==='registered'||type==='deceased'; monthGrp.style.display=needsMonth?'flex':'none'; const msgs={all:'All active and deceased residents will be included. Use filters above to narrow the list.',registered:'Results are filtered by the date the resident was registered in the system (from audit log).',deceased:'Results are filtered by the date the resident\'s status was changed to Deceased (from audit log).'}; hint.querySelector('span').textContent=msgs[type]||msgs.all; }
+document.getElementById('res_report_type')?.addEventListener('change',()=>{ refreshResidentUI(); schedulePreview(); });
 refreshResidentUI();
-
-/* ═══════════════════════════════════
-   LIVE PREVIEW
-═══════════════════════════════════ */
-function resetPreview() {
-    document.getElementById('previewBody').innerHTML = `
-        <div class="preview-empty">
-            <div class="preview-empty-icon">
-                <i data-lucide="file-search" style="width:36px;height:36px;"></i>
-            </div>
-            <p>Click <strong>Preview</strong> to see what will be included in your report based on the current filters.</p>
-        </div>`;
-    document.getElementById('previewCount').textContent = '—';
-    document.getElementById('previewFooter').style.display = 'none';
-    if (typeof lucide !== 'undefined') lucide.createIcons();
-}
-
-function setPreviewLoading() {
-    document.getElementById('previewBody').innerHTML = `
-        <div class="preview-loading">
-            <i data-lucide="loader-2" class="spin-icon" style="width:20px;height:20px;"></i>
-            Loading preview…
-        </div>`;
-    document.getElementById('previewCount').textContent = '…';
-    if (typeof lucide !== 'undefined') lucide.createIcons();
-}
-
-async function fetchPreview(type) {
-    setPreviewLoading();
-
-    let params = {};
-    let url    = '';
-
-    if (type === 'resident') {
-        params = {
-            report_type:  document.getElementById('res_report_type')?.value || '',
-            gender:       document.getElementById('res_gender')?.value || '',
-            household_id: document.getElementById('res_household')?.value || '',
-            month:        document.getElementById('res_month_val')?.value || '',
-            date_from:    document.getElementById('res_date_from')?.value || '',
-            date_to:      document.getElementById('res_date_to')?.value || '',
-            preview:      '1'
-        };
-        url = '/api/preview/residents';
-    } else if (type === 'household') {
-        params = {
-            household_id: document.getElementById('hh_id')?.value || '',
-            search:       document.getElementById('hh_search')?.value || '',
-            gender:       document.getElementById('hh_gender')?.value || '',
-            status:       document.getElementById('hh_status')?.value || '',
-            month:        document.getElementById('hh_month_val')?.value || '',
-            preview:      '1'
-        };
-        url = '/api/preview/households';
-    } else if (type === 'audit') {
-        params = {
-            action_type: document.getElementById('audit_action')?.value || '',
-            target_type: document.getElementById('audit_target')?.value || '',
-            username:    document.getElementById('audit_user')?.value || '',
-            month:       document.getElementById('audit_month_val')?.value || '',
-            preview:     '1'
-        };
-        url = '/api/preview/audit';
-    }
-
-    const qs = new URLSearchParams(params).toString();
-
-    try {
-        const res  = await fetch(`${url}?${qs}`);
-        const data = await res.json();
-        renderPreview(type, data);
-    } catch (err) {
-        console.error('Preview error:', err);
-        document.getElementById('previewBody').innerHTML = `
-            <div class="preview-empty">
-                <div class="preview-empty-icon" style="background:#fff1f2;color:#e11d48;">
-                    <i data-lucide="alert-circle" style="width:36px;height:36px;"></i>
-                </div>
-                <p>Could not load preview. Make sure the API endpoints <code>/api/preview/${type}s</code> are set up on your Flask backend.</p>
-            </div>`;
-        document.getElementById('previewCount').textContent = 'Error';
-        if (typeof lucide !== 'undefined') lucide.createIcons();
-    }
-}
-
-function renderPreview(type, data) {
-    const body    = document.getElementById('previewBody');
-    const count   = document.getElementById('previewCount');
-    const footer  = document.getElementById('previewFooter');
-    const footerT = document.getElementById('previewFooterText');
-
-    const items = data.items || data.results || data || [];
-    const total = data.total ?? items.length;
-
-    count.textContent = `${total} result${total !== 1 ? 's' : ''}`;
-
-    if (!items.length) {
-        body.innerHTML = `
-            <div class="preview-empty">
-                <div class="preview-empty-icon" style="background:#fffbeb;color:#d97706;">
-                    <i data-lucide="search-x" style="width:36px;height:36px;"></i>
-                </div>
-                <p>No records match the selected filters. Try adjusting the options on the left.</p>
-            </div>`;
-        footer.style.display = 'none';
-        if (typeof lucide !== 'undefined') lucide.createIcons();
-        return;
-    }
-
-    let html = '<div class="preview-table-wrap"><table class="preview-table"><thead><tr>';
-
-    if (type === 'resident') {
-        html += `<th>Full Name</th><th>Age</th><th>Gender</th><th>Status</th><th>Household</th><th>Registered</th>`;
-        html += '</tr></thead><tbody>';
-        items.forEach(r => {
-            const name   = r.full_name || [r.surname || r.last_name || '', r.firstname || r.first_name || ''].filter(Boolean).join(', ') || '—';
-            const gender = r.gender || '—';
-            const gBadge = gender.toLowerCase() === 'male' ? 'badge-male' : gender.toLowerCase() === 'female' ? 'badge-female' : '';
-            const status = r.status || 'Active';
-            const sBadge = status.toLowerCase() === 'deceased' ? 'badge-deceased' : 'badge-active';
-            const reg    = r.registration_date || r.created_at || '—';
-            const regFmt = reg !== '—' ? new Date(reg).toLocaleDateString('en-US', {year:'numeric',month:'short',day:'numeric'}) : '—';
-            html += `<tr>
-                <td class="td-name">${name}</td>
-                <td>${r.age ?? '—'}</td>
-                <td><span class="td-badge ${gBadge}">${gender}</span></td>
-                <td><span class="td-badge ${sBadge}">${status}</span></td>
-                <td>${r.household || r.household_name || '—'}</td>
-                <td class="td-muted">${regFmt}</td>
-            </tr>`;
-        });
-    } else if (type === 'household') {
-        html += `<th>Household Name</th><th>House No.</th><th>Members</th><th>Active</th><th>Deceased</th><th>Registered</th>`;
-        html += '</tr></thead><tbody>';
-        items.forEach(h => {
-            const reg    = h.registration_date || h.created_at || '—';
-            const regFmt = reg !== '—' ? new Date(reg).toLocaleDateString('en-US', {year:'numeric',month:'short',day:'numeric'}) : '—';
-            html += `<tr>
-                <td class="td-name">${h.surname || h.name || '—'}</td>
-                <td>${h.house_number || '—'}</td>
-                <td><span class="td-badge" style="background:#e0eaf5;color:#1B3A57;">${h.member_count ?? h.members ?? '—'}</span></td>
-                <td><span class="td-badge badge-active">${h.active_count ?? '—'}</span></td>
-                <td><span class="td-badge badge-deceased">${h.deceased_count ?? '—'}</span></td>
-                <td class="td-muted">${regFmt}</td>
-            </tr>`;
-        });
-    } else if (type === 'audit') {
-        html += `<th>Date & Time</th><th>Action</th><th>Target</th><th>Description</th><th>User</th>`;
-        html += '</tr></thead><tbody>';
-        items.forEach(a => {
-            const action = (a.action_type || a.action || '').toUpperCase();
-            const aBadge = action === 'ADD' ? 'badge-add' : action === 'UPDATE' ? 'badge-update' : action === 'DELETE' ? 'badge-delete' : '';
-            const dt     = a.timestamp || a.created_at || '—';
-            const dtFmt  = dt !== '—' ? new Date(dt).toLocaleString('en-US', {year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
-            html += `<tr>
-                <td class="td-muted">${dtFmt}</td>
-                <td><span class="td-badge ${aBadge}">${action || '—'}</span></td>
-                <td>${a.target_type || '—'}</td>
-                <td>${a.description || a.details || '—'}</td>
-                <td class="td-name">${a.username || a.user || '—'}</td>
-            </tr>`;
-        });
-    }
-
-    html += '</tbody></table></div>';
-    body.innerHTML = html;
-
-    footer.style.display = 'block';
-    footerT.textContent  = `Showing ${items.length} of ${total} record${total !== 1 ? 's' : ''} — click Generate Report to print all results.`;
-
-    if (typeof lucide !== 'undefined') lucide.createIcons();
-}
-
-/* ── init lucide ── */
-document.addEventListener('DOMContentLoaded', () => {
-    if (typeof lucide !== 'undefined') lucide.createIcons();
-    refreshResidentUI();
-});
+function bindAutoPreview(){ document.querySelectorAll('.filter-section').forEach(section=>{ section.querySelectorAll('select,input[type="text"],input[type="search"],input[type="date"]').forEach(el=>{ el.addEventListener('change',schedulePreview); el.addEventListener('input',schedulePreview); }); }); }
+let previewTimer; function schedulePreview(){ clearTimeout(previewTimer); previewTimer=setTimeout(()=>{ const type=getActiveReportType(); if(type==='resident') fetchPreview('resident'); else if(type==='household') fetchPreview('household'); else fetchPreview('audit'); },220); }
+function resetPreview(){ document.getElementById('previewBody').innerHTML='<div class="preview-empty"><div class="preview-empty-icon"><i data-lucide="file-search" style="width:38px;height:38px;"></i></div><p>Select a report type and adjust the filters to build a formal barangay report preview.</p></div>'; document.getElementById('previewCount').textContent='—'; document.getElementById('previewFooter').style.display='none'; if(typeof lucide!=='undefined') lucide.createIcons(); }
+function setPreviewLoading(){ document.getElementById('previewBody').innerHTML='<div class="preview-empty"><div class="preview-empty-icon"><i data-lucide="loader-2" class="spin-icon" style="width:28px;height:28px;"></i></div><p>Preparing the official report preview…</p></div>'; document.getElementById('previewCount').textContent='…'; if(typeof lucide!=='undefined') lucide.createIcons(); }
+function applyPaperSettings(){ const paper=document.getElementById('previewPaper'); if(!paper) return; const size=document.getElementById('printPaperSize')?.value||'a4'; const orientation=document.getElementById('printOrientation')?.value||'portrait'; paper.dataset.size=size; paper.dataset.orientation=orientation; }
+function setOutputMode(mode){ document.querySelectorAll('input[name="outputFormat"]').forEach(radio=>{ if(radio.value===mode) radio.checked=true; }); const type=getActiveReportType(); if(type==='resident') fetchPreview('resident'); else if(type==='household') fetchPreview('household'); else fetchPreview('audit'); }
+function getOptionState(){ return { logo:document.getElementById('includeLogo')?.checked ?? true, summary:document.getElementById('includeSummary')?.checked ?? true, signature:document.getElementById('includeSignature')?.checked ?? true, timestamp:document.getElementById('includeTimestamp')?.checked ?? true, format:document.querySelector('input[name="outputFormat"]:checked')?.value||'pdf' }; }
+function resetFilters(){ const activeSection=document.querySelector('.filter-section.active-panel'); if(!activeSection) return; const form=activeSection.querySelector('form'); if(form) form.reset(); activeSection.querySelectorAll('input[type="hidden"][name="month"]').forEach(input=>input.value=''); activeSection.querySelectorAll('.month-btn').forEach(btn=>btn.classList.remove('selected')); refreshResidentUI(); applyPaperSettings(); schedulePreview(); }
+async function fetchPreview(type){ setPreviewLoading(); let params={}; let url=''; if(type==='resident'){ params={ report_type:document.getElementById('res_report_type')?.value||'', gender:document.getElementById('res_gender')?.value||'', household_id:document.getElementById('res_household')?.value||'', month:document.getElementById('res_month_val')?.value||'', preview:'1' }; url='/api/preview/residents'; } else if(type==='household'){ params={ household_id:document.getElementById('hh_id')?.value||'', search:document.getElementById('hh_search')?.value||'', gender:document.getElementById('hh_gender')?.value||'', status:document.getElementById('hh_status')?.value||'', month:document.getElementById('hh_month_val')?.value||'', preview:'1' }; url='/api/preview/households'; } else if(type==='audit'){ params={ action_type:document.getElementById('audit_action')?.value||'', target_type:document.getElementById('audit_target')?.value||'', username:document.getElementById('audit_user')?.value||'', month:document.getElementById('audit_month_val')?.value||'', preview:'1' }; url='/api/preview/audit'; } const qs=new URLSearchParams(params).toString(); try { const res=await fetch(`${url}?${qs}`); const data=await res.json(); renderPreview(type,data); } catch(err){ console.error('Preview error:',err); document.getElementById('previewBody').innerHTML='<div class="preview-empty"><div class="preview-empty-icon" style="background:#fff1f2;color:#e11d48;"><i data-lucide="alert-circle" style="width:36px;height:36px;"></i></div><p>Preview update failed. Please confirm the preview API is reachable.</p></div>'; document.getElementById('previewCount').textContent='Error'; if(typeof lucide!=='undefined') lucide.createIcons(); } }
+function formatDate(value){ if(!value) return '—'; const date=new Date(value); if(Number.isNaN(date.getTime())) return value; return date.toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'}); }
+function formatDateTime(value){ if(!value) return '—'; const date=new Date(value); if(Number.isNaN(date.getTime())) return value; return date.toLocaleString('en-US',{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }
+function renderPreview(type,data){ const body=document.getElementById('previewBody'); const count=document.getElementById('previewCount'); const footer=document.getElementById('previewFooter'); const footerText=document.getElementById('previewFooterText'); const options=getOptionState(); const items=data.items||data.results||data||[]; const total=data.total ?? items.length; count.textContent=`${total} result${total!==1?'s':''}`; if(!items.length){ body.innerHTML=`<div class="paper-shell"><div class="document-sheet"><div id="previewPaper" class="document-paper" data-size="a4" data-orientation="portrait"><div class="document-head"><div class="document-brand">${options.logo?'<div class="document-logo"><small>Barangay<br>Logo</small></div>':'<div class="document-logo"><small>No logo</small></div>'}<div><div class="document-kicker">Official Report</div><div class="document-barangay">Barangay Record</div></div></div><div class="document-address"><div class="document-kicker">Republic of the Philippines</div><div>Province of Oriental Mindoro</div><div>Municipality of Bongabong</div><div class="document-barangay">Barangay Name</div></div></div><div class="document-title">${type==='resident'?'Resident Report':type==='household'?'Household Report':'Audit Log Report'}</div><div class="document-meta"><div class="document-meta-item"><span>Date Generated</span><strong>${new Date().toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'})}</strong></div><div class="document-meta-item"><span>Generated By</span><strong>Administrator</strong></div><div class="document-meta-item"><span>Output</span><strong>${options.format.toUpperCase()}</strong></div></div>${options.summary?'<div class="document-summary">No matching records were found. The report is ready for formal printing and filing.</div>':''}<div class="document-divider"></div><div class="document-table-wrap"><table class="document-table"><thead><tr><th>Item</th><th>Details</th></tr></thead><tbody><tr><td colspan="2">No matching records were found.</td></tr></tbody></table></div>${options.signature?'<div class="document-signature">Prepared by: __________________________</div>':''}<div class="document-footer"><span>Page 1 of 1</span>${options.timestamp?`<span>${new Date().toLocaleString('en-US')}</span>`:'<span></span>'}</div></div></div></div>`; footer.style.display='block'; footerText.textContent='No records matched the selected filters. Adjust the options to refine the report.'; applyPaperSettings(); if(typeof lucide!=='undefined') lucide.createIcons(); return; }
+const reportTitle=type==='resident'?'Resident Report':type==='household'?'Household Report':'Audit Log Report'; let tableRows=''; if(type==='resident'){ tableRows=items.map(r=>{ const name=r.full_name||[r.surname||r.last_name||'',r.firstname||r.first_name||''].filter(Boolean).join(', ')||'—'; const gender=r.gender||'—'; const status=r.status||'Active'; const genderClass=gender.toLowerCase()==='male'?'status-male':gender.toLowerCase()==='female'?'status-female':''; const statusClass=status.toLowerCase()==='deceased'?'status-deceased':'status-active'; const address=r.household||r.household_name||'—'; const reg=formatDate(r.registration_date||r.created_at||'—'); return `<tr><td>${name}</td><td>${address}</td><td><span class="status-badge ${genderClass}">${gender}</span></td><td><span class="status-badge ${statusClass}">${status}</span></td><td>${reg}</td></tr>`; }).join(''); } else if(type==='household'){ tableRows=items.map(h=>{ const reg=formatDate(h.registration_date||h.created_at||'—'); return `<tr><td>${h.surname||h.name||'—'}</td><td>${h.house_number||'—'}</td><td>${h.member_count ?? h.members ?? '—'}</td><td>${h.active_count ?? '—'}</td><td>${h.deceased_count ?? '—'}</td><td>${reg}</td></tr>`; }).join(''); } else { tableRows=items.map(a=>{ const action=(a.action_type||a.action||'').toUpperCase(); const dt=formatDateTime(a.timestamp||a.created_at||'—'); return `<tr><td>${dt}</td><td>${action||'—'}</td><td>${a.target_type||'—'}</td><td>${a.description||a.details||'—'}</td><td>${a.username||a.user||'—'}</td></tr>`; }).join(''); }
+const headerColumns=type==='resident' ? ['Full Name','Household','Gender','Status','Registered'] : type==='household' ? ['Household','House No.','Members','Active','Deceased','Registered'] : ['Date','Action','Target','Details','User']; const headerHtml=headerColumns.map(col=>`<th>${col}</th>`).join(''); body.innerHTML=`<div class="paper-shell"><div class="document-sheet"><div id="previewPaper" class="document-paper" data-size="a4" data-orientation="portrait"><div class="document-head"><div class="document-brand">${options.logo?'<div class="document-logo"><small>Barangay<br>Logo</small></div>':'<div class="document-logo"><small>No logo</small></div>'}<div><div class="document-kicker">Official Report</div><div class="document-barangay">Barangay Record</div></div></div><div class="document-address"><div class="document-kicker">Republic of the Philippines</div><div>Province of Oriental Mindoro</div><div>Municipality of Bongabong</div><div class="document-barangay">Barangay Name</div></div></div><div class="document-title">${reportTitle}</div><div class="document-meta"><div class="document-meta-item"><span>Date Generated</span><strong>${new Date().toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'})}</strong></div><div class="document-meta-item"><span>Generated By</span><strong>Administrator</strong></div><div class="document-meta-item"><span>Output</span><strong>${options.format.toUpperCase()}</strong></div></div>${options.summary?'<div class="document-summary">Prepared for official filing, review, and printing. The table below mirrors the information that will appear in the final report.</div>':''}<div class="document-divider"></div><div class="document-table-wrap"><table class="document-table"><thead><tr>${headerHtml}</tr></thead><tbody>${tableRows}</tbody></table></div>${options.signature?'<div class="document-signature">Prepared by: __________________________</div>':''}<div class="document-footer"><span>Page 1 of 1</span>${options.timestamp?`<span>${new Date().toLocaleString('en-US')}</span>`:'<span></span>'}</div></div></div></div>`; footer.style.display='block'; footerText.textContent=`Showing ${items.length} of ${total} record${total!==1?'s':''} — the preview reflects the current filters and print format choices.`; applyPaperSettings(); if(typeof lucide!=='undefined') lucide.createIcons(); }
+document.querySelectorAll('input[name="outputFormat"],#printPaperSize,#printOrientation,.form-check-item input').forEach(el=>{ el.addEventListener('change',()=>{ applyPaperSettings(); const type=getActiveReportType(); if(type==='resident') fetchPreview('resident'); else if(type==='household') fetchPreview('household'); else fetchPreview('audit'); }); });
+document.addEventListener('DOMContentLoaded',()=>{ bindAutoPreview(); applyPaperSettings(); resetPreview(); if(typeof lucide!=='undefined') lucide.createIcons(); setTimeout(()=>{ fetchPreview('resident'); },120); });
+window.resetFilters=resetFilters; window.fetchPreview=fetchPreview; window.setOutputMode=setOutputMode;
 </script>
 
 {% endblock %}
