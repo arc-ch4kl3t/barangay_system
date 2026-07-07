@@ -2161,6 +2161,14 @@ def print_audit_logs_report():
 @app.route('/print_all_members')
 @require_role('admin')
 def print_all_members():
+    try:
+        return _print_all_members_response()
+    except Exception:
+        print("[ERROR][print] /print_all_members failed")
+        traceback.print_exc()
+        raise
+
+def _print_all_members_response():
     if 'username' not in session:
         return redirect(url_for('login'))
 
@@ -2174,11 +2182,12 @@ def print_all_members():
     if gender not in {'Male', 'Female'}:
         gender = ''
     try:
-        month_int = int(month) if month else None
         if month == 'year':
             month_int = 'year'
-        elif month_int and (month_int < 1 or month_int > 12):
-            month_int = None
+        else:
+            month_int = int(month) if month else None
+            if month_int and (month_int < 1 or month_int > 12):
+                month_int = None
     except ValueError:
         month_int = None
 
@@ -2354,7 +2363,9 @@ def print_all_members():
     filename_parts = ['Barangay', title_map[report_type].title().replace(' ', '_')]
     if gender:
         filename_parts.append(gender)
-    if month_int:
+    if month_int == 'year':
+        filename_parts.append('This_Year')
+    elif month_int:
         filename_parts.append(month_names[month_int])
     return send_file(file_stream, as_attachment=True, download_name=f"{'_'.join(filename_parts)}.docx")
 
