@@ -2213,8 +2213,8 @@ def _print_all_members_response():
                       AND al.target_id = CAST(h.id AS TEXT)
                       AND al.action_type = 'UPDATE'
                       AND (
-                          al.new_value ILIKE '%"status": "Deceased"%'
-                          OR al.new_value ILIKE '%"status":"Deceased"%'
+                          al.new_value ILIKE '%%"status": "Deceased"%%'
+                          OR al.new_value ILIKE '%%"status":"Deceased"%%'
                       )
                 ) AS deceased_date
             FROM household h
@@ -2246,6 +2246,11 @@ def _print_all_members_response():
 
     query += " ORDER BY surname ASC, firstname ASC"
     print(f"[DEBUG][print] print_all_members filters report_type={report_type!r} gender={gender!r} household_id={household_id!r} month={month!r}")
+    print("[DEBUG][print] print_all_members SQL:")
+    print(query)
+    print(f"[DEBUG][print] print_all_members params={params!r}")
+    print(f"[DEBUG][print] print_all_members len(params)={len(params)}")
+    print(f"[DEBUG][print] print_all_members placeholder_count={query.count('%s')}")
     cursor.execute(query, params)
     members = cursor.fetchall()
     conn.close()
