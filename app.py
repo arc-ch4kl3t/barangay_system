@@ -109,6 +109,29 @@ def _month_filter_sql(column_name):
 def _current_year_filter_sql(column_name):
     return f"EXTRACT(YEAR FROM {column_name}) = EXTRACT(YEAR FROM CURRENT_DATE)"
 
+def _year_filter_sql(column_name):
+    return f"EXTRACT(YEAR FROM {column_name}) = %s"
+
+def _parse_report_period(month, year=''):
+    try:
+        if month == 'year':
+            month_int = 'year'
+        else:
+            month_int = int(month) if month else None
+            if month_int and (month_int < 1 or month_int > 12):
+                month_int = None
+    except ValueError:
+        month_int = None
+
+    try:
+        year_int = int(year) if year else None
+        if year_int and (year_int < 1900 or year_int > 2100):
+            year_int = None
+    except ValueError:
+        year_int = None
+
+    return month_int, year_int
+
 def ensure_auth_schema_safe():
     """Initialize the PostgreSQL schema in one transaction.
 
@@ -496,8 +519,8 @@ def login():
                 if status == 'pending':
                     flash("Your account is pending admin approval. Please wait for confirmation.", "warning")
                     return redirect(url_for('login'))
-                elif status == 'rejected':
-                    flash("Your account registration was rejected. Contact administrator for more details.", "danger")
+                elif status in {'rejected', 'inactive', 'archived', 'deleted'}:
+                    flash("Your account access has been revoked or deactivated. Contact administrator for more details.", "danger")
                     return redirect(url_for('login'))
                 
                 role = (user['role'] or 'user').lower()
@@ -929,6 +952,86 @@ def api_update_user_role():
     
     except Exception as e:
         print(f"[ERROR] /api/user/role error: {e}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/api/user/delete', methods=['POST'])
+@require_role('admin')
+def api_delete_user():
+    """Delete or revoke a user account (admin only)"""
+    conn = None
+    try:
+        ensure_auth_schema()
+
+        data = request.get_json(silent=True) or {}
+        user_id = data.get('user_id')
+        delete_mode = (data.get('delete_mode') or data.get('mode') or 'soft').lower()
+
+        if user_id is None:
+            return jsonify({'error': 'User ID is required'}), 400
+
+        if delete_mode not in {'soft', 'hard'}:
+            return jsonify({'error': 'Invalid deletion mode'}), 400
+
+        user_id = int(user_id)
+        current_user_id = session.get('user_id')
+        if current_user_id is not None and int(current_user_id) == user_id:
+            return jsonify({'error': 'You cannot delete your own account.'}), 400
+
+        conn, cursor = get_db()
+        cursor.execute("SELECT id, username, email, role, status FROM users WHERE id=%s", (user_id,))
+        user = cursor.fetchone()
+
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        previous_status = user.get('status') or 'approved'
+        if delete_mode == 'soft':
+            cursor.execute("UPDATE users SET status=%s WHERE id=%s", ('inactive', user_id))
+            conn.commit()
+            log_audit(
+                session.get('username', 'admin'),
+                'DELETE',
+                f"User account access revoked: {user['username']} ({user['email'] or 'no email'})",
+                user_id=session.get('user_id'),
+                target_type='User',
+                target_id=user_id,
+                old_value={'status': previous_status},
+                new_value={'status': 'inactive', 'action': 'soft_delete'}
+            )
+            return jsonify({
+                'success': True,
+                'message': 'User access revoked successfully.',
+                'delete_mode': 'soft',
+                'new_status': 'inactive',
+                'username': user['username']
+            }), 200
+
+        cursor.execute("DELETE FROM users WHERE id=%s", (user_id,))
+        conn.commit()
+        log_audit(
+            session.get('username', 'admin'),
+            'DELETE',
+            f"User permanently deleted: {user['username']} ({user['email'] or 'no email'})",
+            user_id=session.get('user_id'),
+            target_type='User',
+            target_id=user_id,
+            old_value={'status': previous_status, 'role': user.get('role')},
+            new_value={'status': 'deleted', 'action': 'hard_delete'}
+        )
+        return jsonify({
+            'success': True,
+            'message': 'User permanently deleted successfully.',
+            'delete_mode': 'hard',
+            'deleted_user': user['username']
+        }), 200
+
+    except ValueError:
+        return jsonify({'error': 'Invalid user ID'}), 400
+    except Exception as e:
+        print(f"[ERROR] /api/user/delete error: {e}")
         return jsonify({'error': str(e)}), 500
     finally:
         if conn:
@@ -2176,20 +2279,13 @@ def _print_all_members_response():
     gender = request.args.get('gender', '').strip()
     household_id = request.args.get('household_id', '').strip()
     month = request.args.get('month', '').strip()
+    year = request.args.get('year', '').strip()
 
     if report_type not in {'all', 'registered', 'deceased'}:
         report_type = 'all'
     if gender not in {'Male', 'Female'}:
         gender = ''
-    try:
-        if month == 'year':
-            month_int = 'year'
-        else:
-            month_int = int(month) if month else None
-            if month_int and (month_int < 1 or month_int > 12):
-                month_int = None
-    except ValueError:
-        month_int = None
+    month_int, year_int = _parse_report_period(month, year)
 
     ensure_audit_log_schema()
     conn, cursor = get_db()
@@ -2237,20 +2333,19 @@ def _print_all_members_response():
         params.append(household_id)
 
     date_column = 'deceased_date' if report_type == 'deceased' else 'registration_date'
-    if report_type in {'registered', 'deceased'}:
+    if report_type in {'all', 'registered', 'deceased'}:
         if month_int == 'year':
             query += f" AND {_current_year_filter_sql(date_column)}"
-        elif month_int:
-            query += f" AND {_month_filter_sql(date_column)}"
-            params.append(month_int)
+        else:
+            if month_int:
+                query += f" AND {_month_filter_sql(date_column)}"
+                params.append(month_int)
+            if year_int:
+                query += f" AND {_year_filter_sql(date_column)}"
+                params.append(year_int)
 
     query += " ORDER BY surname ASC, firstname ASC"
-    print(f"[DEBUG][print] print_all_members filters report_type={report_type!r} gender={gender!r} household_id={household_id!r} month={month!r}")
-    print("[DEBUG][print] print_all_members SQL:")
-    print(query)
-    print(f"[DEBUG][print] print_all_members params={params!r}")
-    print(f"[DEBUG][print] print_all_members len(params)={len(params)}")
-    print(f"[DEBUG][print] print_all_members placeholder_count={query.count('%s')}")
+    debug_log(f"[DEBUG][print] print_all_members filters report_type={report_type!r} gender={gender!r} household_id={household_id!r} month={month!r} year={year!r}")
     cursor.execute(query, params)
     members = cursor.fetchall()
     conn.close()
@@ -2281,12 +2376,17 @@ def _print_all_members_response():
         filter_lines.append(f"Gender: {gender}")
     if household_id:
         filter_lines.append(f"Household ID: {household_id}")
-    if report_type in {'registered', 'deceased'}:
+    if report_type in {'all', 'registered', 'deceased'}:
         date_label = 'Death / Deceased Update Date' if report_type == 'deceased' else 'Registration Date'
         if month_int == 'year':
             filter_lines.append(f"{date_label}: This Year")
         elif month_int:
-            filter_lines.append(f"{date_label} Month: {month_names[month_int]}")
+            period = month_names[month_int]
+            if year_int:
+                period = f"{period} {year_int}"
+            filter_lines.append(f"{date_label}: {period}")
+        elif year_int:
+            filter_lines.append(f"{date_label} Year: {year_int}")
     if not filter_lines:
         filter_lines.append('Filters: All residents')
 
@@ -2372,6 +2472,8 @@ def _print_all_members_response():
         filename_parts.append('This_Year')
     elif month_int:
         filename_parts.append(month_names[month_int])
+    if year_int:
+        filename_parts.append(str(year_int))
     return send_file(file_stream, as_attachment=True, download_name=f"{'_'.join(filename_parts)}.docx")
 
 @app.route('/api/preview/residents')
@@ -2387,19 +2489,13 @@ def api_preview_residents():
         gender = request.args.get('gender', '').strip()
         household_id = request.args.get('household_id', '').strip()
         month = request.args.get('month', '').strip()
+        year = request.args.get('year', '').strip()
 
         if report_type not in {'all', 'registered', 'deceased'}:
             report_type = 'all'
         if gender not in {'Male', 'Female'}:
             gender = ''
-        try:
-            month_int = int(month) if month else None
-            if month == 'year':
-                month_int = 'year'
-            elif month_int and (month_int < 1 or month_int > 12):
-                month_int = None
-        except ValueError:
-            month_int = None
+        month_int, year_int = _parse_report_period(month, year)
 
         ensure_audit_log_schema()
         conn, cursor = get_db()
@@ -2423,8 +2519,8 @@ def api_preview_residents():
                           AND al.target_id = CAST(h.id AS TEXT)
                           AND al.action_type = 'UPDATE'
                           AND (
-                              al.new_value ILIKE '%"status": "Deceased"%'
-                              OR al.new_value ILIKE '%"status":"Deceased"%'
+                              al.new_value ILIKE '%%"status": "Deceased"%%'
+                              OR al.new_value ILIKE '%%"status":"Deceased"%%'
                           )
                     ) AS deceased_date
                 FROM household h
@@ -2447,15 +2543,19 @@ def api_preview_residents():
             params.append(household_id)
 
         date_column = 'deceased_date' if report_type == 'deceased' else 'registration_date'
-        if report_type in {'registered', 'deceased'}:
+        if report_type in {'all', 'registered', 'deceased'}:
             if month_int == 'year':
                 query += f" AND {_current_year_filter_sql(date_column)}"
-            elif month_int:
-                query += f" AND {_month_filter_sql(date_column)}"
-                params.append(month_int)
+            else:
+                if month_int:
+                    query += f" AND {_month_filter_sql(date_column)}"
+                    params.append(month_int)
+                if year_int:
+                    query += f" AND {_year_filter_sql(date_column)}"
+                    params.append(year_int)
 
         query += " ORDER BY surname ASC, firstname ASC LIMIT 100"
-        debug_log(f"[DEBUG][preview] /api/preview/residents filters report_type={report_type!r} gender={gender!r} household_id={household_id!r} month={month!r}")
+        debug_log(f"[DEBUG][preview] /api/preview/residents filters report_type={report_type!r} gender={gender!r} household_id={household_id!r} month={month!r} year={year!r}")
         cursor.execute(query, params)
         members = cursor.fetchall()
 
