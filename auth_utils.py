@@ -3,54 +3,12 @@ Authentication and Authorization Utilities
 """
 
 import secrets
-import smtplib
-import socket
 from functools import wraps
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from flask import session, redirect, url_for, flash
-from email_config import GMAIL_CONFIG
-
-
-def resolve_ipv4_smtp_host(hostname, port):
-    """Resolve a Gmail hostname to a stable IPv4 address to avoid Render IPv6 failures."""
-    try:
-        addr_info = socket.getaddrinfo(hostname, port, socket.AF_INET, socket.SOCK_STREAM)
-    except socket.gaierror as exc:
-        raise RuntimeError(f"Unable to resolve SMTP host {hostname}: {exc}") from exc
-
-    if not addr_info:
-        raise RuntimeError(f"No IPv4 address found for SMTP host {hostname}")
-
-    return addr_info[0][4][0]
-
-
-def send_gmail_message(msg):
-    """Send a message through Gmail using IPv4 resolution and STARTTLS on port 587."""
-    if not GMAIL_CONFIG['sender_email'] or not GMAIL_CONFIG['sender_password']:
-        return False, "Email service not configured. Contact administrator."
-
-    smtp_host = GMAIL_CONFIG['smtp_server']
-    smtp_port = int(GMAIL_CONFIG.get('smtp_port', 587))
-
-    try:
-        resolved_host = resolve_ipv4_smtp_host(smtp_host, smtp_port)
-        with smtplib.SMTP(resolved_host, smtp_port, timeout=10) as server:
-            server.ehlo()
-            server.starttls()
-            server.login(GMAIL_CONFIG['sender_email'], GMAIL_CONFIG['sender_password'])
-            server.send_message(msg)
-        return True, "Email sent successfully"
-    except smtplib.SMTPAuthenticationError as exc:
-        print(f"SMTP authentication error: {exc}")
-        return False, "Email authentication failed. Check Gmail credentials."
-    except (OSError, TimeoutError, smtplib.SMTPException) as exc:
-        print(f"SMTP send error: {exc}")
-        return False, f"Failed to send email: {exc}"
-    except Exception as exc:
-        print(f"Unexpected SMTP error: {exc}")
-        return False, f"Unexpected error sending email: {exc}"
+from email_config import GMAIL_CONFIG, send_gmail_message
 
 def require_role(*allowed_roles):
     """Decorator to check user role for route access"""
@@ -84,7 +42,7 @@ def generate_reset_token():
 
 def send_password_reset_email(to_email, username, reset_link):
     """
-    Send password reset email via Gmail SMTP
+    Send password reset email via the configured email API.
     Args:
         to_email: Recipient email
         username: Username for personalization
@@ -93,9 +51,6 @@ def send_password_reset_email(to_email, username, reset_link):
         tuple: (success: bool, message: str)
     """
     try:
-        if not GMAIL_CONFIG['sender_email'] or not GMAIL_CONFIG['sender_password']:
-            return False, "Email service not configured. Contact administrator."
-
         msg = MIMEMultipart('alternative')
         msg['Subject'] = 'Barangay Information System - Password Reset Request'
         msg['From'] = GMAIL_CONFIG['sender_email']
@@ -151,11 +106,6 @@ Barangay Information System
         msg.attach(MIMEText(html, 'html'))
 
         return send_gmail_message(msg)
-    except smtplib.SMTPAuthenticationError:
-        return False, "Email authentication failed. Check Gmail credentials."
-    except smtplib.SMTPException as exc:
-        print(f"SMTP error for password reset: {exc}")
-        return False, f"Failed to send email: {exc}"
     except Exception as exc:
         print(f"Unexpected email send error for password reset: {exc}")
         return False, f"Unexpected error sending email: {exc}"
@@ -170,9 +120,6 @@ def send_admin_notification(admin_email, username, action):
         action: Action description
     """
     try:
-        if not GMAIL_CONFIG['sender_email'] or not GMAIL_CONFIG['sender_password']:
-            return False, "Email service not configured"
-        
         msg = MIMEMultipart('alternative')
         msg['Subject'] = 'Password Reset Activity - Barangay Information System'
         msg['From'] = GMAIL_CONFIG['sender_email']
