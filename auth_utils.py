@@ -115,19 +115,25 @@ Barangay Information System
         msg.attach(part2)
         
         # Send email
-        server = smtplib.SMTP(GMAIL_CONFIG['smtp_server'], GMAIL_CONFIG['smtp_port'])
-        server.starttls()
-        server.login(GMAIL_CONFIG['sender_email'], GMAIL_CONFIG['sender_password'])
-        server.send_message(msg)
-        server.quit()
+        try:
+            server = smtplib.SMTP(GMAIL_CONFIG['smtp_server'], GMAIL_CONFIG['smtp_port'])
+            server.starttls()
+            server.login(GMAIL_CONFIG['sender_email'], GMAIL_CONFIG['sender_password'])
+            server.send_message(msg)
+            server.quit()
+        except Exception as smtp_error:
+            print(f"SMTP send error for password reset: {smtp_error}")
+            return False, f"Failed to send email: {str(smtp_error)}"
         
         return True, "Password reset email sent successfully"
     
     except smtplib.SMTPAuthenticationError:
         return False, "Email authentication failed. Check Gmail credentials."
     except smtplib.SMTPException as e:
+        print(f"SMTP error for password reset: {e}")
         return False, f"Failed to send email: {str(e)}"
     except Exception as e:
+        print(f"Unexpected email send error for password reset: {e}")
         return False, f"Unexpected error sending email: {str(e)}"
 
 def send_admin_notification(admin_email, username, action):
@@ -179,11 +185,15 @@ Barangay Information System
         msg.attach(part1)
         msg.attach(part2)
         
-        server = smtplib.SMTP(GMAIL_CONFIG['smtp_server'], GMAIL_CONFIG['smtp_port'])
-        server.starttls()
-        server.login(GMAIL_CONFIG['sender_email'], GMAIL_CONFIG['sender_password'])
-        server.send_message(msg)
-        server.quit()
+        try:
+            server = smtplib.SMTP(GMAIL_CONFIG['smtp_server'], GMAIL_CONFIG['smtp_port'])
+            server.starttls()
+            server.login(GMAIL_CONFIG['sender_email'], GMAIL_CONFIG['sender_password'])
+            server.send_message(msg)
+            server.quit()
+        except Exception as smtp_error:
+            print(f"SMTP send error for admin notification: {smtp_error}")
+            return False, str(smtp_error)
         
         return True, "Admin notification sent"
     except Exception as e:

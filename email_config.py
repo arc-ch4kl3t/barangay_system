@@ -19,8 +19,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 GMAIL_CONFIG = {
-    'sender_email': os.getenv('GMAIL_ADDRESS', ''),
-    'sender_password': os.getenv('GMAIL_PASSWORD', ''),
+    'sender_email': 'your-email@gmail.com',
+    'sender_password': 'your-16-char-app-password',
     'smtp_server': 'smtp.gmail.com',
     'smtp_port': 587
 }
