@@ -10,6 +10,11 @@ BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
 SENDER_EMAIL = os.getenv("GMAIL_ADDRESS", "lorainenina40@gmail.com").strip()
 SENDER_NAME = "Barangay Information System"
 
+if BREVO_API_KEY:
+    print("[EMAIL CONFIG SUCCESS] BREVO_API_KEY is configured.")
+else:
+    print("[EMAIL CONFIG ERROR] BREVO_API_KEY environment variable is MISSING or EMPTY!")
+
 class SafeConfigDict(dict):
     def __getitem__(self, key):
         if key in ("sender_email", "email", "user", "username"):
