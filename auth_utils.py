@@ -4,12 +4,51 @@ Authentication and Authorization Utilities
 
 import secrets
 import smtplib
+import socket
 from functools import wraps
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from flask import session, redirect, url_for, flash
 from email_config import GMAIL_CONFIG
+
+
+def resolve_ipv4_smtp_host(hostname, port):
+    """Resolve a Gmail hostname to a stable IPv4 address to avoid Render IPv6 failures."""
+    try:
+        addr_info = socket.getaddrinfo(hostname, port, socket.AF_INET, socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise RuntimeError(f"Unable to resolve SMTP host {hostname}: {exc}") from exc
+
+    if not addr_info:
+        raise RuntimeError(f"No IPv4 address found for SMTP host {hostname}")
+
+    return addr_info[0][4][0]
+
+
+def send_gmail_message(msg):
+    """Send a message through Gmail using an IPv4-resolved socket and a strict timeout."""
+    if not GMAIL_CONFIG['sender_email'] or not GMAIL_CONFIG['sender_password']:
+        return False, "Email service not configured. Contact administrator."
+
+    smtp_host = GMAIL_CONFIG['smtp_server']
+    smtp_port = int(GMAIL_CONFIG.get('smtp_port', 465))
+
+    try:
+        resolved_host = resolve_ipv4_smtp_host(smtp_host, smtp_port)
+        with smtplib.SMTP_SSL(resolved_host, smtp_port, timeout=10) as server:
+            server.login(GMAIL_CONFIG['sender_email'], GMAIL_CONFIG['sender_password'])
+            server.send_message(msg)
+        return True, "Email sent successfully"
+    except smtplib.SMTPAuthenticationError as exc:
+        print(f"SMTP authentication error: {exc}")
+        return False, "Email authentication failed. Check Gmail credentials."
+    except (OSError, TimeoutError, smtplib.SMTPException) as exc:
+        print(f"SMTP send error: {exc}")
+        return False, f"Failed to send email: {exc}"
+    except Exception as exc:
+        print(f"Unexpected SMTP error: {exc}")
+        return False, f"Unexpected error sending email: {exc}"
 
 def require_role(*allowed_roles):
     """Decorator to check user role for route access"""
@@ -54,14 +93,12 @@ def send_password_reset_email(to_email, username, reset_link):
     try:
         if not GMAIL_CONFIG['sender_email'] or not GMAIL_CONFIG['sender_password']:
             return False, "Email service not configured. Contact administrator."
-        
-        # Create email
+
         msg = MIMEMultipart('alternative')
         msg['Subject'] = 'Barangay Information System - Password Reset Request'
         msg['From'] = GMAIL_CONFIG['sender_email']
         msg['To'] = to_email
-        
-        # Plain text version
+
         text = f"""
 Hello {username},
 
@@ -77,8 +114,7 @@ If you did not request this, please ignore this email.
 Best regards,
 Barangay Information System
         """
-        
-        # HTML version
+
         html = f"""
         <html>
             <body style="font-family: Arial, sans-serif;">
@@ -87,8 +123,8 @@ Barangay Information System
                     <p>Hello <strong>{username}</strong>,</p>
                     <p>You requested to reset your password for the Barangay Information System.</p>
                     <p>
-                        <a href="{reset_link}" 
-                           style="display: inline-block; padding: 12px 24px; background-color: #2e86c1; 
+                        <a href="{reset_link}"
+                           style="display: inline-block; padding: 12px 24px; background-color: #2e86c1;
                                   color: white; text-decoration: none; border-radius: 4px; margin: 20px 0;">
                             Reset Your Password
                         </a>
@@ -108,31 +144,20 @@ Barangay Information System
             </body>
         </html>
         """
-        
-        part1 = MIMEText(text, 'plain')
-        part2 = MIMEText(html, 'html')
-        msg.attach(part1)
-        msg.attach(part2)
-        
-        # Send email using implicit SSL on port 465 to avoid blocked STARTTLS outbound connections on Render.
-        try:
-            with smtplib.SMTP_SSL(GMAIL_CONFIG['smtp_server'], GMAIL_CONFIG['smtp_port'], timeout=10) as server:
-                server.login(GMAIL_CONFIG['sender_email'], GMAIL_CONFIG['sender_password'])
-                server.send_message(msg)
-        except Exception as smtp_error:
-            print(f"SMTP send error for password reset: {smtp_error}")
-            return False, f"Failed to send email: {str(smtp_error)}"
-        
-        return True, "Password reset email sent successfully"
-    
+
+        msg.attach(MIMEText(text, 'plain'))
+        msg.attach(MIMEText(html, 'html'))
+
+        return send_gmail_message(msg)
     except smtplib.SMTPAuthenticationError:
         return False, "Email authentication failed. Check Gmail credentials."
-    except smtplib.SMTPException as e:
-        print(f"SMTP error for password reset: {e}")
-        return False, f"Failed to send email: {str(e)}"
-    except Exception as e:
-        print(f"Unexpected email send error for password reset: {e}")
-        return False, f"Unexpected error sending email: {str(e)}"
+    except smtplib.SMTPException as exc:
+        print(f"SMTP error for password reset: {exc}")
+        return False, f"Failed to send email: {exc}"
+    except Exception as exc:
+        print(f"Unexpected email send error for password reset: {exc}")
+        return False, f"Unexpected error sending email: {exc}"
+
 
 def send_admin_notification(admin_email, username, action):
     """
@@ -178,20 +203,10 @@ Barangay Information System
         </html>
         """
         
-        part1 = MIMEText(text, 'plain')
-        part2 = MIMEText(html, 'html')
-        msg.attach(part1)
-        msg.attach(part2)
-        
-        try:
-            with smtplib.SMTP_SSL(GMAIL_CONFIG['smtp_server'], GMAIL_CONFIG['smtp_port'], timeout=10) as server:
-                server.login(GMAIL_CONFIG['sender_email'], GMAIL_CONFIG['sender_password'])
-                server.send_message(msg)
-        except Exception as smtp_error:
-            print(f"SMTP send error for admin notification: {smtp_error}")
-            return False, str(smtp_error)
-        
-        return True, "Admin notification sent"
-    except Exception as e:
-        print(f"Error sending admin notification: {e}")
-        return False, str(e)
+        msg.attach(MIMEText(text, 'plain'))
+        msg.attach(MIMEText(html, 'html'))
+
+        return send_gmail_message(msg)
+    except Exception as exc:
+        print(f"Error sending admin notification: {exc}")
+        return False, str(exc)
