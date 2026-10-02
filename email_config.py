@@ -10,13 +10,23 @@ BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
 SENDER_EMAIL = os.getenv("GMAIL_ADDRESS", "lorainenina40@gmail.com").strip()
 SENDER_NAME = "Barangay Information System"
 
-# Legacy dictionary configuration required by auth_utils.py
-GMAIL_CONFIG = {
+# Safe fallback dictionary that returns valid values for ANY missing key
+class SafeConfigDict(dict):
+    def __getitem__(self, key):
+        if key in ("sender_email", "email", "user", "username"):
+            return SENDER_EMAIL
+        if key in ("sender_name", "name"):
+            return SENDER_NAME
+        # Return empty string for passwords, ports, hosts, or any other unexpected keys
+        return super().get(key, "")
+
+GMAIL_CONFIG = SafeConfigDict({
     "sender_email": SENDER_EMAIL,
     "email": SENDER_EMAIL,
     "password": "",
+    "sender_password": "",
     "sender_name": SENDER_NAME
-}
+})
 
 def send_gmail_message(msg):
     """
