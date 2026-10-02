@@ -30,7 +30,7 @@ GMAIL_CONFIG = {
     'sender_email': _clean_env(os.getenv('GMAIL_ADDRESS') or os.getenv('EMAIL_ADDRESS')),
     'sender_password': (_clean_env(os.getenv('GMAIL_PASSWORD') or os.getenv('EMAIL_PASSWORD'))).replace(' ', ''),
     'smtp_server': _clean_env(os.getenv('GMAIL_SMTP_SERVER', 'smtp.gmail.com')),
-    'smtp_port': int(_clean_env(os.getenv('GMAIL_SMTP_PORT', '465')) or 465),
+    'smtp_port': int(_clean_env(os.getenv('GMAIL_SMTP_PORT', '587')) or 587),
 }
 
 

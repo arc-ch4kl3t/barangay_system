@@ -27,16 +27,18 @@ def resolve_ipv4_smtp_host(hostname, port):
 
 
 def send_gmail_message(msg):
-    """Send a message through Gmail using an IPv4-resolved socket and a strict timeout."""
+    """Send a message through Gmail using IPv4 resolution and STARTTLS on port 587."""
     if not GMAIL_CONFIG['sender_email'] or not GMAIL_CONFIG['sender_password']:
         return False, "Email service not configured. Contact administrator."
 
     smtp_host = GMAIL_CONFIG['smtp_server']
-    smtp_port = int(GMAIL_CONFIG.get('smtp_port', 465))
+    smtp_port = int(GMAIL_CONFIG.get('smtp_port', 587))
 
     try:
         resolved_host = resolve_ipv4_smtp_host(smtp_host, smtp_port)
-        with smtplib.SMTP_SSL(resolved_host, smtp_port, timeout=10) as server:
+        with smtplib.SMTP(resolved_host, smtp_port, timeout=10) as server:
+            server.ehlo()
+            server.starttls()
             server.login(GMAIL_CONFIG['sender_email'], GMAIL_CONFIG['sender_password'])
             server.send_message(msg)
         return True, "Email sent successfully"
