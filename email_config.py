@@ -6,11 +6,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
+def get_brevo_api_key():
+    return os.getenv("BREVO_API_KEY", "").strip()
+
 SENDER_EMAIL = os.getenv("GMAIL_ADDRESS", "lorainenina40@gmail.com").strip()
 SENDER_NAME = "Barangay Information System"
 
-if BREVO_API_KEY:
+if get_brevo_api_key():
     print("[EMAIL CONFIG SUCCESS] BREVO_API_KEY is configured.")
 else:
     print("[EMAIL CONFIG ERROR] BREVO_API_KEY environment variable is MISSING or EMPTY!")
@@ -35,8 +37,9 @@ def send_gmail_message(msg):
     """
     Sends email via Brevo HTTP API (Port 443) to bypass Render SMTP restrictions.
     """
-    if not BREVO_API_KEY:
-        print("[EMAIL ERROR] Missing BREVO_API_KEY in environment variables.")
+    api_key = get_brevo_api_key()
+    if not api_key:
+        print("[EMAIL ERROR] Missing BREVO_API_KEY in environment variables at send time.")
         return False, "Email service not configured. Contact administrator."
 
     to_email = msg["To"]
@@ -63,7 +66,7 @@ def send_gmail_message(msg):
 
     headers = {
         "accept": "application/json",
-        "api-key": BREVO_API_KEY,
+        "api-key": api_key,
         "content-type": "application/json"
     }
 
