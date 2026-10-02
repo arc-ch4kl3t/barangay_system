@@ -1,43 +1,69 @@
-"""
-Email Configuration for Password Reset
-Setup instructions:
-1. Go to https://myaccount.google.com/apppasswords
-2. Select "Mail" and "Windows Computer" (or your device)
-3. Copy the 16-character password
-4. Set environment variables (Windows PowerShell):
-   $env:GMAIL_ADDRESS="your-email@gmail.com"
-   $env:GMAIL_PASSWORD="your-16-char-app-password"
-
-5. Or add to .env file (create in project root):
-   GMAIL_ADDRESS=your-email@gmail.com
-   GMAIL_PASSWORD=your-16-char-app-password
-"""
-
 import os
+import json
+import urllib.request
+import urllib.error
 from dotenv import load_dotenv
 
 load_dotenv()
 
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
+SENDER_EMAIL = os.getenv("GMAIL_ADDRESS", "lorainenina40@gmail.com").strip()
+SENDER_NAME = "Barangay Information System"
 
-def _clean_env(value):
-    """Normalize environment values for Gmail configuration."""
-    if value is None:
-        return ""
-    return str(value).strip()
+def send_gmail_message(msg):
+    """
+    Sends email via Brevo HTTP API (Port 443) to bypass Render SMTP restrictions.
+    """
+    if not BREVO_API_KEY:
+        print("[EMAIL ERROR] Missing BREVO_API_KEY in environment variables.")
+        return False, "Email provider not configured."
 
+    to_email = msg["To"]
+    subject = msg["Subject"]
 
-GMAIL_CONFIG = {
-    'sender_email': _clean_env(os.getenv('GMAIL_ADDRESS') or os.getenv('EMAIL_ADDRESS')),
-    'sender_password': (_clean_env(os.getenv('GMAIL_PASSWORD') or os.getenv('EMAIL_PASSWORD'))).replace(' ', ''),
-    'smtp_server': _clean_env(os.getenv('GMAIL_SMTP_SERVER', 'smtp.gmail.com')),
-    'smtp_port': int(_clean_env(os.getenv('GMAIL_SMTP_PORT', '587')) or 587),
-}
+    html_content = ""
+    text_content = ""
+    if msg.is_multipart():
+        for part in msg.walk():
+            content_type = part.get_content_type()
+            if content_type == "text/html":
+                html_content = part.get_payload(decode=True).decode("utf-8", errors="ignore")
+            elif content_type == "text/plain":
+                text_content = part.get_payload(decode=True).decode("utf-8", errors="ignore")
+    else:
+        html_content = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
 
+    payload = {
+        "sender": {"name": SENDER_NAME, "email": SENDER_EMAIL},
+        "to": [{"email": to_email}],
+        "subject": subject,
+        "htmlContent": html_content or text_content,
+    }
 
-def validate_gmail_config():
-    """Check if Gmail is properly configured."""
-    if not GMAIL_CONFIG['sender_email'] or not GMAIL_CONFIG['sender_password']:
-        return False, "Gmail credentials not configured."
-    if GMAIL_CONFIG['smtp_port'] not in (465, 587):
-        return False, "Gmail SMTP port must be 465 or 587."
-    return True, "Gmail configured successfully"
+    headers = {
+        "accept": "application/json",
+        "api-key": BREVO_API_KEY,
+        "content-type": "application/json"
+    }
+
+    req = urllib.request.Request(
+        "https://api.brevo.com/v3/smtp/email",
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST"
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            if response.status in (200, 201):
+                print(f"[EMAIL SUCCESS] Brevo API delivered reset email to {to_email}")
+                return True, "Email sent successfully"
+            else:
+                return False, f"Brevo API error status: {response.status}"
+    except urllib.error.HTTPError as exc:
+        err_body = exc.read().decode('utf-8', errors='ignore')
+        print(f"[EMAIL ERROR] Brevo HTTP Error {exc.code}: {err_body}")
+        return False, f"Failed to send email via API: {exc.code}"
+    except Exception as exc:
+        print(f"[EMAIL ERROR] Network error sending via Brevo: {exc}")
+        return False, f"Failed to send email: {exc}"
