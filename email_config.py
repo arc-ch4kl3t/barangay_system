@@ -10,14 +10,12 @@ BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
 SENDER_EMAIL = os.getenv("GMAIL_ADDRESS", "lorainenina40@gmail.com").strip()
 SENDER_NAME = "Barangay Information System"
 
-# Safe fallback dictionary that returns valid values for ANY missing key
 class SafeConfigDict(dict):
     def __getitem__(self, key):
         if key in ("sender_email", "email", "user", "username"):
             return SENDER_EMAIL
         if key in ("sender_name", "name"):
             return SENDER_NAME
-        # Return empty string for passwords, ports, hosts, or any other unexpected keys
         return super().get(key, "")
 
 GMAIL_CONFIG = SafeConfigDict({
@@ -34,7 +32,7 @@ def send_gmail_message(msg):
     """
     if not BREVO_API_KEY:
         print("[EMAIL ERROR] Missing BREVO_API_KEY in environment variables.")
-        return False, "Email provider not configured."
+        return False, "Email service not configured. Contact administrator."
 
     to_email = msg["To"]
     subject = msg["Subject"]
