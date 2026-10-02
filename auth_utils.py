@@ -114,13 +114,11 @@ Barangay Information System
         msg.attach(part1)
         msg.attach(part2)
         
-        # Send email
+        # Send email using implicit SSL on port 465 to avoid blocked STARTTLS outbound connections on Render.
         try:
-            server = smtplib.SMTP(GMAIL_CONFIG['smtp_server'], GMAIL_CONFIG['smtp_port'])
-            server.starttls()
-            server.login(GMAIL_CONFIG['sender_email'], GMAIL_CONFIG['sender_password'])
-            server.send_message(msg)
-            server.quit()
+            with smtplib.SMTP_SSL(GMAIL_CONFIG['smtp_server'], GMAIL_CONFIG['smtp_port'], timeout=10) as server:
+                server.login(GMAIL_CONFIG['sender_email'], GMAIL_CONFIG['sender_password'])
+                server.send_message(msg)
         except Exception as smtp_error:
             print(f"SMTP send error for password reset: {smtp_error}")
             return False, f"Failed to send email: {str(smtp_error)}"
@@ -186,11 +184,9 @@ Barangay Information System
         msg.attach(part2)
         
         try:
-            server = smtplib.SMTP(GMAIL_CONFIG['smtp_server'], GMAIL_CONFIG['smtp_port'])
-            server.starttls()
-            server.login(GMAIL_CONFIG['sender_email'], GMAIL_CONFIG['sender_password'])
-            server.send_message(msg)
-            server.quit()
+            with smtplib.SMTP_SSL(GMAIL_CONFIG['smtp_server'], GMAIL_CONFIG['smtp_port'], timeout=10) as server:
+                server.login(GMAIL_CONFIG['sender_email'], GMAIL_CONFIG['sender_password'])
+                server.send_message(msg)
         except Exception as smtp_error:
             print(f"SMTP send error for admin notification: {smtp_error}")
             return False, str(smtp_error)

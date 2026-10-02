@@ -19,14 +19,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 GMAIL_CONFIG = {
-    'sender_email': 'your-email@gmail.com',
-    'sender_password': 'your-16-char-app-password',
+    'sender_email': 'lorainenia49@gmail.com',
+    'sender_password': 'vgvg ppzv attx jgsu',
     'smtp_server': 'smtp.gmail.com',
-    'smtp_port': 587
+    'smtp_port': 465
 }
 
 def validate_gmail_config():
     """Check if Gmail is properly configured"""
     if not GMAIL_CONFIG['sender_email'] or not GMAIL_CONFIG['sender_password']:
-        return False, "Gmail credentials not configured. See email_config.py for setup instructions."
+        return False, "Gmail credentials not configured."
     return True, "Gmail configured successfully"
