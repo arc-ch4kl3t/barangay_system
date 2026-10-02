@@ -10,10 +10,12 @@ BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
 SENDER_EMAIL = os.getenv("GMAIL_ADDRESS", "lorainenina40@gmail.com").strip()
 SENDER_NAME = "Barangay Information System"
 
-# Dummy dictionary provided so imports in auth_utils.py don't crash
+# Legacy dictionary configuration required by auth_utils.py
 GMAIL_CONFIG = {
+    "sender_email": SENDER_EMAIL,
     "email": SENDER_EMAIL,
-    "password": ""
+    "password": "",
+    "sender_name": SENDER_NAME
 }
 
 def send_gmail_message(msg):
