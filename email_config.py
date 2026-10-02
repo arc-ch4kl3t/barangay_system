@@ -10,6 +10,12 @@ BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
 SENDER_EMAIL = os.getenv("GMAIL_ADDRESS", "lorainenina40@gmail.com").strip()
 SENDER_NAME = "Barangay Information System"
 
+# Dummy dictionary provided so imports in auth_utils.py don't crash
+GMAIL_CONFIG = {
+    "email": SENDER_EMAIL,
+    "password": ""
+}
+
 def send_gmail_message(msg):
     """
     Sends email via Brevo HTTP API (Port 443) to bypass Render SMTP restrictions.
